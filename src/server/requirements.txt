@@ -1,5 +1,11 @@
 torch
 transformers
 numpy
-tritonclient[http]
 fastapi[all]
+python-dotenv
+argparse
+#nvidia-ml-py
+vllm==0.17.1
+uvicorn
+pydantic
+typing_extensions

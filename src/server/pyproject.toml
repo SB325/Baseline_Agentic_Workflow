@@ -1,0 +1,13 @@
+[project]
+name = "server"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "argparse==1.4.0",
+    "fastapi[all]>=0.135.1",
+    "numpy>=2.4.3",
+    "nvidia-ml-py>=13.590.48",
+    "python-dotenv>=1.2.2",
+    "torch>=2.10.0",
+    "transformers>=5.3.0",
+]
