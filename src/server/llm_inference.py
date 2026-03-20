@@ -1,18 +1,25 @@
+import os
+from dotenv import load_dotenv
+import logging
+load_dotenv()
+LLM_DIR = os.getenv("LLM_MODEL_STORAGE")
+# Disable vllm's custom logging configuration
+os.environ["VLLM_CONFIGURE_LOGGING"] = "0"
+# Set log level to only show critical system failures
+os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
+# Remove the (EngineCore_DP0 pid=...) prefixing
+os.environ["VLLM_LOGGING_PREFIX"] = "0"
+logging.getLogger("vllm").setLevel(logging.ERROR)
+
 import uuid
 import asyncio
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
-import os
-from dotenv import load_dotenv
 import pynvml
 import pdb
 import re
 from datetime import datetime
-
-load_dotenv()
-LLM_DIR = os.getenv("LLM_MODEL_STORAGE")
-os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
 
 def get_vram_status():
     pynvml.nvmlInit()
@@ -36,10 +43,10 @@ class VLLMSingleton:
             engine_args = AsyncEngineArgs(
                 model=LLM_DIR,
                 dtype="float16",
-                trust_remote_code=True,
-                quantization="awq", 
                 enable_prefix_caching=True, # Critical for fast history
-                gpu_memory_utilization=0.80
+                gpu_memory_utilization=0.90,
+                max_model_len=8192,             # Context window size
+                max_num_batched_tokens=8192,    # Concurrently processed tokens
             )
             cls._instance = AsyncLLMEngine.from_engine_args(engine_args)
         return cls._instance
@@ -64,8 +71,9 @@ class UserSession:
         self.current_request_id = None  # Track the active task
         # Initialize history with the system prompt
         self.history = [{"role": "system", "content": system_prompt}]
-
-    def _format_chat(self) -> str:
+        self.max_model_len = self.engine.vllm_config.model_config.max_model_len
+    
+    def _format_chat(self, thinking_mode_on: bool) -> str:
         """
         Manually formats history into Qwen's ChatML format.
         <|im_start|>system...<|im_end|><|im_start|>user...<|im_end|><|im_start|>assistant
@@ -73,6 +81,8 @@ class UserSession:
         prompt = ""
         for msg in self.history:
             prompt += f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>\n"
+            if not thinking_mode_on:
+                prompt += f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>/nothink\n"
         prompt += "<|im_start|>assistant\n"
         return prompt
 
@@ -88,23 +98,32 @@ class UserSession:
             f.write(f"--- {timestamp} ---\n{thought_text.strip()}\n\n")
 
     async def generate(self, user_input: str,
-            add_thinking_output: bool = False):
-        # 1. Add user input to history
-        self.history.append({"role": "user", "content": user_input})
+            add_thinking_output: bool = False,
+            max_tokens: int = 512,
+            fill_fraction_limit=0.5):
+
+        fill_fraction = (len(user_input)+max_tokens)/(self.max_model_len)
+        if fill_fraction > fill_fraction_limit:
+            return f"[ERROR]: Prompt and max_tokens response will take up " + \
+                f"{fill_fraction*100:.1f}% of context window, " + \
+                 f"Need at least {(1-fill_fraction_limit)*100}% of the " + \
+                 "window for conversation history."
         
-        # 2. Format the full conversation for the model
-        full_prompt = self._format_chat()
+        user_input = {"role": "user", "content": user_input}
+        self.history.append(user_input)
         
+        full_prompt = self._format_chat(add_thinking_output)
+
         self.current_request_id = f"{self.user_id}-{uuid.uuid4()}"
 
-        # extra_body = None
-        # if not add_thinking_output:
-        #     extra_body={"chat_template_kwargs": {"enable_thinking": False}}
         sampling_params = SamplingParams(
-            temperature=self.temp_setting, 
-            max_tokens=512,
+            temperature=self.temp_setting, # randomness
+            max_tokens=max_tokens,         # max tokens to return
+            top_p=0.95,             # avoids long tail tokens, probability threshold
+            top_k=20,               # k most likely next words to consider
+            presence_penalty=1.5,   # avoids getting stuck in loops
+            repetition_penalty=1.1, # likeliness for repeated words
             stop=["<|im_end|>", "<|endoftext|>"],
-            # extra_args=extra_body,
         )
 
         # 3. Stream from the engine
@@ -114,18 +133,20 @@ class UserSession:
         async for request_output in results_generator:
             raw_text = request_output.outputs[0].text
         
-        clean_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
-        # Regex to find everything between <think> tags
-        thought_match = re.search(r'<think>(.*?)</think>', raw_text, flags=re.DOTALL)
+        response_text = raw_text
+        if add_thinking_output:
+            # Regex to find everything between <think> tags
+            thought_match = re.search(r'<think>(.*?)</think>', raw_text, flags=re.DOTALL)
+            if thought_match:
+                thought_content = thought_match.group(1)
+                await self._save_thought_to_disk(raw_text)
+        else:
+            clean_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+            response_text = clean_text
+        
+        self.history.append({"role": "assistant", "content": response_text})
 
-        if thought_match:
-            thought_content = thought_match.group(1)
-            await self._save_thought_to_disk(raw_text)
-
-        # 4. Save the model's response to history for the next turn
-        self.history.append({"role": "assistant", "content": clean_text})
-
-        return clean_text
+        return response_text
     
     def get_vram_status(self):
         get_vram_status()
