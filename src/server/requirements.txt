@@ -9,3 +9,4 @@ vllm==0.17.1
 uvicorn
 pydantic
 typing_extensions
+pdf2image
