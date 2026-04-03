@@ -1,4 +1,4 @@
-# Toy Agent
+# Baseline Agentic Workflow
 
 This agent is a demo that explores concepts in agentic AI workflow design and construction.
 
