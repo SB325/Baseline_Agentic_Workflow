@@ -1,5 +1,5 @@
-import os
-import sys
+import os, sys
+import signal
 import asyncio
 import uuid
 from dotenv import load_dotenv
@@ -16,7 +16,8 @@ import base64
 from io import BytesIO
 import argparse
 from pathlib import Path
-from vllm.distributed.parallel_state import destroy_distributed_environment
+from vllm.distributed.parallel_state import destroy_distributed_environment, destroy_model_parallel
+import torch.distributed as dist
 
 load_dotenv()
 LLM_DIR = os.getenv("LLM_IMAGE_MODEL_STORAGE")
@@ -90,9 +91,19 @@ class InferenceEngine:
     async def __del__(self):
         """Call this to free up GPU memory gracefully."""
         if self.engine:
-            await self.engine.shutdown_background_loop()
-            destroy_distributed_environment()
+            if hasattr(self.engine, "shutdown"):
+                self.engine.shutdown()
+            # Check for V0 engine (AsyncLLMEngine)
+            elif hasattr(self.engine, "shutdown_background_loop"):
+                self.engine.shutdown_background_loop()
+
+            # destroy_distributed_environment()
+            destroy_model_parallel()
+            print("vLLM Engine shut down gracefully.")
+            
             self.engine = None
+            if dist.is_initialized():
+                dist.destroy_process_group()
 
 class UserSession:
     def __init__(self, 
@@ -164,7 +175,7 @@ class UserSession:
     async def inference(self, 
             image_path: str,
             prompt_str_: str,
-            max_tokens: int = 2048,
+            max_tokens: int = 512,
             verbose: bool = False):
         max_tokens = 256 if max_tokens < 256 else max_tokens
 
@@ -243,6 +254,15 @@ class UserSession:
         return result
 
 async def main(prompt_str, image_file = None):
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
+    async def shutdown(sig_name):
+        print(f"\nReceived {sig_name}. Cleaning up...")
+        # Access the engine through your ocrAI session
+        await ocrAI.shared_engine.__del__() 
+        stop_event.set()
+
     if image_file:
         if not Path(image_file).is_file():
             print('Path does not address a file.')
@@ -251,14 +271,21 @@ async def main(prompt_str, image_file = None):
     ocrAI = await UserSession.create(client_id = "Bob",
                 system_prompt="You are a helpful assistant.")
 
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(
+            sig, 
+            lambda s=sig: asyncio.create_task(self.shutdown(s.name))
+        )
+
     while True:        
         result = await ocrAI.inference(
             image_path=image_file, 
             prompt_str_=prompt_str,
             verbose=True,
         )
-        prompt_str = input("Your reply:\n") 
+        prompt_str = input("Your reply: (or press Enter to quit):\n") 
         if not prompt_str:
+            await shutdown("Manual Exit")
             break
 
 if __name__ == "__main__":
