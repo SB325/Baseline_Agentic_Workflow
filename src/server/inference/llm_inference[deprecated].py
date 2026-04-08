@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 import logging
+
 load_dotenv()
 LLM_DIR = os.getenv("LLM_MODEL_STORAGE")
 # Disable vllm's custom logging configuration
@@ -102,7 +103,8 @@ class UserSession:
         with open(filename, "a", encoding="utf-8") as f:
             f.write(f"--- {timestamp} ---\n{thought_text.strip()}\n\n")
 
-    async def generate(self, user_input: str,
+    async def inference(self, 
+            user_input: str,
             add_thinking_output: bool = False,
             max_tokens: int = 512,
             fill_fraction_limit=0.5):
@@ -117,17 +119,26 @@ class UserSession:
         #   (minus max_token length) with that context prior to inference. The
         #   longer/shorter the needed max_token length, the shorter/longer the context 
         #   length can be.
-        fill_fraction = (len(user_input)+max_tokens)/(self.max_model_len)
+        fill_fraction = (len(prompt_str)+max_tokens)/(self.max_model_len)
         if fill_fraction > fill_fraction_limit:
             return f"[ERROR]: Prompt and max_tokens response will take up " + \
                 f"{fill_fraction*100:.1f}% of context window, " + \
                  f"Need at least {(1-fill_fraction_limit)*100}% of the " + \
                  "window for conversation history."
         
-        user_input = {"role": "user", "content": user_input}
-        self.history.append(user_input)
+        prompt_str = {"role": "user", "content": prompt_str}
         
         full_prompt = self._format_chat(add_thinking_output)
+        prompt_str = self.shared_engine.tokenizer.apply_chat_template(
+            [prompt_str], 
+            tokenize=False, 
+            add_generation_prompt=True, 
+            enable_thinking=False,
+        )
+        if not add_thinking_output:
+            prompt_str = prompt_str.replace("<think>\n\n</think>\n\n", "")
+
+        self.history.append(prompt_str)
 
         self.current_request_id = f"{self.user_id}-{uuid.uuid4()}"
 
@@ -138,26 +149,29 @@ class UserSession:
             top_k=20,               # k most likely next words to consider
             presence_penalty=1.5,   # avoids getting stuck in loops
             repetition_penalty=1.1, # likeliness for repeated words
-            stop=["<|im_end|>", "<|endoftext|>"],
+            # stop=["<|im_end|>", "<|endoftext|>"],
         )
 
-        # 3. Stream from the engine
-        results_generator = self.engine.generate(full_prompt, sampling_params, self.current_request_id)
+        results_generator = self.engine.inference(
+            full_prompt, 
+            sampling_params, 
+            self.current_request_id,
+        )
         
         raw_text = ""
         async for request_output in results_generator:
             raw_text = request_output.outputs[0].text
         
         response_text = raw_text
-        if add_thinking_output:
-            # Regex to find everything between <think> tags
-            thought_match = re.search(r'<think>(.*?)</think>', raw_text, flags=re.DOTALL)
-            if thought_match:
-                thought_content = thought_match.group(1)
-                await self._save_thought_to_disk(raw_text)
-        else:
-            clean_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
-            response_text = clean_text
+        # if add_thinking_output:
+        #     # Regex to find everything between <think> tags
+        #     thought_match = re.search(r'<think>(.*?)</think>', raw_text, flags=re.DOTALL)
+        #     if thought_match:
+        #         thought_content = thought_match.group(1)
+        #         await self._save_thought_to_disk(raw_text)
+        # else:
+        #     clean_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+        #     response_text = clean_text
         
         self.history.append({"role": "assistant", "content": response_text})
 
@@ -184,13 +198,13 @@ async def main():
         # First turn
         msg ="My name is Alice. Remember that."
         print(f"{user}: {msg}")
-        resp1 = await alice.generate(msg)
+        resp1 = await alice.inference(msg)
         print(f"Bot: {resp1}")
         
         # Second turn (The model will remember the name)
         msg = "What is my name?"
         print(f"{user}: {msg}")
-        resp2 = await alice.generate(msg)
+        resp2 = await alice.inference(msg)
         print(f"Bot: {resp2}")
     except Exception as e:
         print(f"An error occurred: {e}")

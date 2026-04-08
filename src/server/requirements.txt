@@ -10,3 +10,4 @@ uvicorn
 pydantic
 typing_extensions
 pdf2image
+asyncio
