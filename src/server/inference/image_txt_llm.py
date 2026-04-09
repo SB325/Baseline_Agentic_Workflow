@@ -1,4 +1,12 @@
 import os, sys
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+# Disable vllm's custom logging configuration
+os.environ["VLLM_CONFIGURE_LOGGING"] = "0"
+# Set log level to only show critical system failures
+os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
+# Remove the (EngineCore_DP0 pid=...) prefixing
+os.environ["VLLM_LOGGING_PREFIX"] = "0"
+
 import signal
 import asyncio
 import uuid
@@ -20,13 +28,7 @@ from vllm.distributed.parallel_state import destroy_distributed_environment, des
 import torch.distributed as dist
 
 load_dotenv()
-LLM_DIR = os.getenv("LLM_IMAGE_MODEL_STORAGE")
-# Disable vllm's custom logging configuration
-os.environ["VLLM_CONFIGURE_LOGGING"] = "0"
-# Set log level to only show critical system failures
-os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
-# Remove the (EngineCore_DP0 pid=...) prefixing
-os.environ["VLLM_LOGGING_PREFIX"] = "0"
+LLM_DIR = os.getenv("LLM_IMAGE_MODEL_NT_STORAGE")
 logging.getLogger("vllm").setLevel(logging.ERROR)
 
 def get_vram_status():
@@ -44,13 +46,15 @@ def get_vram_status():
     pynvml.nvmlShutdown()
  
 def turn_off_thinking(prompt):
-    return prompt.replace(
-        "\n<think>\n", 
+    template = prompt.replace(
+        "\n<think>\n\n</think>\n\n", 
         ""
     ).replace(
-        "\n</think>\n", 
-        ""
+        "<|im_end|>",
+        "/no_think<|im_end|>", 
     )
+        
+    return template
 
 def pil_to_base64(image):
     buffered = BytesIO()
@@ -75,12 +79,15 @@ class InferenceEngine:
                     model=LLM_DIR,
                     gpu_memory_utilization=0.8,
                     trust_remote_code=True,
+                    reasoning_parser=None,
+                    max_model_len=8096,
                 )
                 self.engine = AsyncLLMEngine.from_engine_args(engine_args)
                 self.tokenizer = self.engine.get_tokenizer()
                 self.processor = AutoProcessor.from_pretrained(
                     LLM_DIR, 
                     trust_remote_code=True,
+                    use_fast=False
                 )
         return {
                 'engine': self.engine, 
@@ -108,8 +115,8 @@ class InferenceEngine:
 class UserSession:
     def __init__(self, 
         client_id: str,         # Application must define
-        system_prompt: str,     # Application must define
         engine_data: dict,
+        system_prompt: str = "You are a helpful assistant.",
         ):
         # Assign a unique string identifier to this specific client
         self.client_id = client_id or f"client-{uuid.uuid4().hex[:8]}"
@@ -130,7 +137,9 @@ class UserSession:
         engine_data = await shared_instance.get_engine()
         
         # Return a fully initialized instance of UserSession
-        return cls(client_id, system_prompt, engine_data)
+        return cls(client_id = client_id, 
+            system_prompt=system_prompt, 
+            engine_data=engine_data)
 
     def apply_template(self, template_obj: list):
         return self.tokenizer.apply_chat_template(
@@ -175,24 +184,25 @@ class UserSession:
     async def inference(self, 
             image_path: str,
             prompt_str_: str,
-            max_tokens: int = 512,
+            max_tokens: int = 256,
             verbose: bool = False):
-        max_tokens = 256 if max_tokens < 256 else max_tokens
-
-        content_in = {"role": "user"}
+        max_tokens = 64 if max_tokens < 64 else max_tokens
+        print(f"Max Tokens: {max_tokens}")
         
         prompt = {"role": "user"}
         if image_path:
-            prompt['content'] = content_in.extend({"type": "image"})
-            prompt.extend(
-                {"multi_modal_data": {"image": self.decode_image(image_path)},
-                    'mm_processor_kwargs': 
-                        {
-                            "max_pixels": max_tokens * 32 * 32, # Increase for fine detail
-                            "min_pixels": 256 * 32 * 32,      # Minimum baseline
-                        }
-                }
-            )
+            prompt['content'] = [
+                {
+                    "type": "image", 
+                    "image": self.decode_image(image_path),
+                    "max_pixels": max_tokens * 32 * 32, # Increase for fine detail
+                    "min_pixels": 256 * 32 * 32,      # Minimum baseline
+                },
+                {
+                    "type": "text", 
+                    "text": prompt_str_,
+                },
+            ]
         else:
             prompt['content'] = prompt_str_
 
@@ -200,17 +210,17 @@ class UserSession:
         # We combine client_id + a request hash to keep them distinct
         request_id = f"{self.client_id}-{uuid.uuid4().hex[:4]}"
         
+        prompt['content'] = prompt['content'] # + f" Keep responses to within {max_tokens} words in length."
         if not len(self.history):
-            prompt_str = self.apply_template([self.system_prompt, prompt])
+            prompt_str = self.apply_template([ self.system_prompt, prompt ])
         else:
             prompt_str = self.apply_template([prompt])
             
-        prompt_str_formatted = turn_off_thinking(prompt_str)
-       
+        # prompt_str = turn_off_thinking(prompt_str)
+
         # Appending history provides memory to the LLM, however this is the beginnning
         #  of the memory management harness.
-        full_context = self.query_memory(prompt_str_formatted)
-
+        full_context = self.query_memory(prompt_str)
         sampling_params = SamplingParams(
             temperature=0.7, 
             max_tokens=max_tokens,
@@ -219,7 +229,7 @@ class UserSession:
         )
 
         if verbose:
-            print(f"************\n{prompt_str_formatted}\n*****************")
+            print(f"************\n{prompt_str}\n*****************")
 
         results_generator = self.engine.generate(
             prompt=full_context, 
@@ -232,7 +242,6 @@ class UserSession:
         async for request_output in results_generator:
             for completion in request_output.outputs:
                 reason = completion.finish_reason
-                # pdb.set_trace()  # check completion for image data structure
 
         result['output'] = completion.text   
         if reason == "length":
@@ -241,7 +250,6 @@ class UserSession:
             result['status'] = ("The model finished naturally.")
         elif reason == "abort":
             result['status'] = ("The request was aborted.")
-
         if verbose:
             print(f"Status:\n{result['status']}")
             print(f"Generated text:\n{result['output']}")
@@ -253,7 +261,7 @@ class UserSession:
         )
         return result
 
-async def main(prompt_str, image_file = None):
+async def main(prompt_str, max_tokens, image_file = None):
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
@@ -268,19 +276,22 @@ async def main(prompt_str, image_file = None):
             print('Path does not address a file.')
             sys.exit(0)
 
-    ocrAI = await UserSession.create(client_id = "Bob",
-                system_prompt="You are a helpful assistant.")
+    ocrAI = await UserSession.create(
+            client_id = "Bob",
+            system_prompt= "You are a concise assistant. Provide direct, information-dense answers only."
+        )
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(
             sig, 
-            lambda s=sig: asyncio.create_task(self.shutdown(s.name))
+            lambda s=sig: asyncio.create_task(shutdown(s.name))
         )
 
     while True:        
         result = await ocrAI.inference(
             image_path=image_file, 
             prompt_str_=prompt_str,
+            max_tokens=int(max_tokens),
             verbose=True,
         )
         prompt_str = input("Your reply: (or press Enter to quit):\n") 
@@ -293,6 +304,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--prompt", required=True, help="Text prompt for LLM")
     parser.add_argument("-i", "--image_path", help="Path for image to transcribe")
+    parser.add_argument("-t", "--max_tokens", help="Max tokens for LLM to respond with")
 
     args = parser.parse_args()
-    asyncio.run(main(prompt_str = args.prompt, image_file = args.image_path))
+    asyncio.run(
+        main(
+            prompt_str = args.prompt, 
+            image_file = args.image_path, 
+            max_tokens = args.max_tokens,
+        )
+    )

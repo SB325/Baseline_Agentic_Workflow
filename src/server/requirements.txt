@@ -2,9 +2,9 @@ torch
 transformers
 numpy
 fastapi[all]
+fastmcp
 python-dotenv
 argparse
-#nvidia-ml-py
 vllm==0.17.1
 uvicorn
 pydantic
