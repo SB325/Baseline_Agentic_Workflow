@@ -8,7 +8,6 @@ import asyncio
 from inference.image_txt_llm import UserSession  # Multimodal LLM model
 from typing import Annotated    
 from fastapi import FastAPI, Header, Request
-from fastmcp import FastMCP
 from contextlib import asynccontextmanager
 from fastmcp.utilities.lifespan import combine_lifespans
 from functools import wraps
@@ -94,75 +93,9 @@ async def inference(client_id: str, request: Request, data: str):
         return {"status": "failed"}
     return {"status": "ok", "result": result}
 
-
-############ MCP ENDPOINTS ##################
-class Create_Session_Request(BaseModel):
-    system_prompt: str = Field(
-        description="""The system prompt for the new chat client that defines 
-            the assistant's persona and rules to follow for the conversation.""")
-
-# Create your MCP server
-mcp = FastMCP("API Tools")
-
-@mcp.tool
-def create_llm_session_mcp(
-            client_id: str, 
-            model_object: Request, 
-            data_in: Create_Session_Request
-            ) -> str:
-    """Begins a new chat session between chat client and assistant.
-
-    Arguments:
-    - client_id: The string defining the name of the chat client.
-    - model_object: contains a reference to the llm client object that the mcp client should ignore!
-    - data_in: dictionary object containing system prompt for conversation.
-    Returns:
-    A string specifying whether the chat session has been created or not.
-    """
-
-    data = data_in.model_dump()
-
-    response = await new_session(client_id, model_object, data)
-    if not "ok" in response['status']
-        return f"Failed to create chat session with client_id: {client_id}."
-    return f"Chat session with client_id: {client_id} created."
-
-class Inference_Request(BaseModel):
-    prompt_str: str = Field(
-        description="""The prompt string from the user to the chat session.""")
-    image_file: BytesIO = Field(
-        description="""A binary file that contains data for an image that the
-            user refers to in the prompt string.""")
-    max_tokens: int = Field(
-        description="""The max number of tokens that should be returned.""")
-
-@mcp.tool
-def inference_on_session_mcp(
-            client_id: str, 
-            model_object: Request, 
-            data_in: Inference_Request
-            ) -> list[Message]:
-    """Model inference response to a prompt from client after a chat session has been started.
-
-    Arguments:
-    - client_id: The string defining the name of the chat client.
-    - model_object: contains a reference to the llm client object that the mcp client should ignore!
-    - data_in: dictionary object containing necessary configuration for inference function.
-
-    Returns:
-    String response to user prompt from model.
-    """
-    data = data_in.model_dump()
-
-    result = await inference(client_id, model_object, data)
-    return result
-
-# Create the MCP ASGI app with path="/" since we'll mount at /mcp
-mcp_app = mcp.http_app(path="/")
-
 ############ API ENDPOINTS ##################
 # Create FastAPI app with MCP lifespan (required for session management)
-api = FastAPI(lifespan=combine_lifespans(mcp_app.lifespan, session_lifespan))
+api = FastAPI(lifespan=session_lifespan)
 
 @api.get("/api/status")
 def status():
@@ -181,10 +114,7 @@ async def inference_on_session(client_id: str, request: Request):
     result = await inference(client_id, request, data)
     return result
 
-# Mount MCP at /mcp
-api.mount("/mcp", mcp_app)
-
 if __name__ == "__main__":
-    uvicorn.run("text_media_generation:api", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=8000, reload=True)
 
     

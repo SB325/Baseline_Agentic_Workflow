@@ -80,6 +80,8 @@ class InferenceEngine:
                     gpu_memory_utilization=0.8,
                     trust_remote_code=True,
                     reasoning_parser=None,
+                    enable_auto_tool_choice=True,
+                    tool_call_parser=hermes,
                     max_model_len=8096,
                 )
                 self.engine = AsyncLLMEngine.from_engine_args(engine_args)
@@ -141,13 +143,14 @@ class UserSession:
             system_prompt=system_prompt, 
             engine_data=engine_data)
 
-    def apply_template(self, template_obj: list):
+    def apply_template(self, template_obj: list, tools: list =None):
         return self.tokenizer.apply_chat_template(
             conversation=template_obj, 
             tokenize=False, 
             add_generation_prompt=True, 
             return_tensors="pt",
             enable_thinking=False,
+            tools=tools,
             # continue_final_message=True, #  The model will continue this message rather than starting a new one
             # tools=[],  Each tool should be passed as a JSON Schema, giving the name, description and argument types for the tool.
         )
@@ -205,6 +208,23 @@ class UserSession:
             ]
         else:
             prompt['content'] = prompt_str_
+
+        # tools = [
+        #     {
+        #         "type": "function",
+        #         "function": {
+        #             "name": "get_weather",
+        #             "description": "Get current weather for a city",
+        #             "parameters": {
+        #                 "type": "object",
+        #                 "properties": {
+        #                     "location": {"type": "string", "description": "City name"}
+        #                 },
+        #                 "required": ["location"]
+        #             }
+        #         }
+        #     }
+        # ]
 
         # vLLM needs a unique ID for every single request
         # We combine client_id + a request hash to keep them distinct
