@@ -1,0 +1,31 @@
+services:
+  vllm:
+    env_file:
+      - ./src/server/.env
+    build:
+      context: ./src
+      args:
+        - SRC_IMG=nginx
+        - SRC_TAG=latest
+        - LLM_IMAGE_MODEL_NT_STORAGE=${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1
+        - ROOT_VLLM_PROXY_PREFIX=vllm
+        - MAX_VLLM_CLIENTS=3
+        - no_cache
+    restart: unless-stopped
+    volumes:
+        - ./logs:/root/logs
+        - ${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1:${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks:
+     - homeserver
+    profiles:
+      - llm
+    container_name: vllm
