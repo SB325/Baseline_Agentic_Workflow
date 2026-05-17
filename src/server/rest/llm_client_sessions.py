@@ -146,12 +146,12 @@ async def new_session(session_data, request):
             else:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="Cannot create duplicate clients."
+                    detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
                 )
         else:
             return {"status": "Bad Request", "reason": "Cannot create duplicate clients."}
     except Exception as e:
-        msg = f"Failed to create session with client_id {client_id}: {str(e.__dict__)}"
+        msg = f"Failed to create session with client_id: {str(e.__dict__)}"
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=msg
@@ -176,7 +176,10 @@ async def remove_session(session_data, request):
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to remove session with client_id {client_id}: {str(e)}"
                 )
-
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"status": "success"}
+            )
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
