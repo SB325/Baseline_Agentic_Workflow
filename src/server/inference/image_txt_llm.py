@@ -136,7 +136,7 @@ class UserSession:
         self.client_id = f"client-{client_id}-{uuid.uuid4().hex[:8]}"
         self.shared_engine = InferenceEngine()
         self.history = []
-        self.engine = engine_data['engine']
+        self.engine = engine_data['engine']  # Why is this here?
         self.tokenizer = engine_data['tokenizer']
         self.processor = engine_data['processor']
         self.system_prompt = {

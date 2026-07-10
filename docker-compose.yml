@@ -10,13 +10,15 @@ services:
         - LLM_IMAGE_MODEL_NT_STORAGE=${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1
         - ROOT_VLLM_PROXY_PREFIX=vllm
         - MAX_VLLM_CLIENTS=3
+        - VLLM_PORT=${VLLM_PORT}
         - no_cache
     restart: unless-stopped
     volumes:
+        - ./src/server:/app
         - ./logs:/root/logs
         - ${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1:${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1
     ports:
-      - "8000:8000"
+      - "${VLLM_PORT}:${VLLM_PORT}"
     deploy:
       resources:
         reservations:

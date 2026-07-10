@@ -22,12 +22,13 @@ COPY util/ /util
 WORKDIR /app
 
 # Expose port
-EXPOSE 8000
+# EXPOSE 8001
+ARG VLLM_PORT
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV HOST=0.0.0.0
-ENV PORT=8000
+ENV VLLM_PORT=${VLLM_PORT}
 
 # Run the FastAPI application
-CMD ["uvicorn", "rest.llm_client_sessions:api", "--host", "0.0.0.0", "--port", "8000"]
+CMD python rest/llm_client_sessions.py

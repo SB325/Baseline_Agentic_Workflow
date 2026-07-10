@@ -20,6 +20,7 @@ import json
 
 load_dotenv()
 MAX_CLIENTS = int(os.getenv("MAX_VLLM_CLIENTS"))
+vllm_port = int(os.getenv("VLLM_PORT"))
 
 class SuccessResponse(BaseModel):
     status: str = "success"
@@ -243,16 +244,17 @@ api = FastAPI(
 )
 
 @api.get("/api/status")
-def get_status():
+async def get_status():
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "status": "healthy",
             "active_sessions": len(api.state.llm_sessions),
-            "max_clients": MAX_CLIENTS
+            "active_session_ids": ", ".join(api.state.llm_sessions.keys()),
+            "max_clients": MAX_CLIENTS,
         }
     )
-
+        
 class sessionModel(BaseModel):
     client_id: str
     system_prompt: str | None = None
@@ -292,6 +294,6 @@ async def gpu_status():
         )
 
 if __name__ == "__main__":
-    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port, reload=True)
 
     
