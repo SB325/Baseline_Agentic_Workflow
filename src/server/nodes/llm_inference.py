@@ -127,6 +127,7 @@ class LLMInference:
         return results['status']
 
     async def inference(self, 
+            client_id: str = None,
             prompt_str: str = None,
             max_tokens: int = 256,
         ):
@@ -134,12 +135,13 @@ class LLMInference:
         if not self.check_vllm_availability:
             return {'status': status, 'output': "VLLM server Unavailable!"}
 
+        assert client_id, "There must be a client_id"
         assert prompt_str, "There must be a prompt_str"
 
         val = requests.post(
             url_in = self.vllm_address + f'/api/inference_on_session',
             json_in = {
-                'client_id': self.client_id, 
+                'client_id': client_id, 
                 'prompt_str': prompt_str,
                 'max_tokens': max_tokens,
                 }
