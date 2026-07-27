@@ -42,7 +42,7 @@
 # Downstream agent 5 (from agent 4): Provide a category that this proper noun fits in. 
 
 #################################################
-from nodes.llm_inference import LLMInference
+from nodes.llm_inference.subagent.orchestration import LLMInference
 from typing import Annotated, Literal, Union
 from typing_extensions import TypedDict
 from operator import add
