@@ -150,12 +150,14 @@ async def new_session(session_data, request):
                     detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
                 )
         else:
-            return {"status": "Bad Request", "reason": "Cannot create duplicate clients."}
+            raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
+                )
     except Exception as e:
-        msg = f"Failed to create session with client_id: {str(e.__dict__)}"
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=msg
+            detail=f"{str(e.__dict__)}"
         )
 
 @clean_shutdown
@@ -189,7 +191,7 @@ async def remove_session(session_data, request):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create session: {str(e)}"
+            detail=f"{str(e.__dict__)}"
         )
 
 # Run inference for client context defined by 'client_id'
@@ -229,7 +231,7 @@ async def inference(session_data, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Inference failed: {str(e)}"
+            detail=f"{str(e.__dict__)}"
         )
 
 @clean_shutdown_small

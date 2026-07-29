@@ -1,7 +1,7 @@
 import os, sys
 import pdb
 from pathlib import Path
-parent_dir = str(Path(__file__).resolve().parent.parent.parent)
+parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 import json
@@ -10,6 +10,7 @@ import argparse
 import asyncio
 from util.requests_util import requests_util
 import subprocess
+import ast
 
 load_dotenv()
 LLM_DIR = os.getenv("LLM_IMAGE_MODEL_NT_STORAGE")
@@ -102,11 +103,15 @@ class LLMInference:
         if val.ok:
             status = True
         
-        return {'status': status, 'output': results['message']}
+        if not status:
+            return {'status': ast.literal_eval(results['detail'])['status_code'], 'output': ast.literal_eval(results['detail'])['detail']}
+
+        return {'status': results['status'], 'output': results['message']}
 
     async def delete_session(self,
             client_id: str = None,
         ):
+        
         status = False
         if not self.check_vllm_availability:
             return {'status': status, 'output': "VLLM server Unavailable!"}
@@ -124,7 +129,16 @@ class LLMInference:
         if val.ok:
             status = True
         
-        return results['status']
+        detail = None
+        if results.get('detail', None):
+            detail = ast.literal_eval(results['detail'])
+            if detail.get('status_code', None):
+                status = detail['status_code']
+                detail = detail['detail']
+        
+        if not status:
+            return {'status': status, 'output': detail}
+        return {'status': status}
 
     async def inference(self, 
             client_id: str = None,
@@ -147,10 +161,18 @@ class LLMInference:
                 }
             )
         results = val.json()
+        
+        detail = None
+        if results.get('detail', None):
+            detail = ast.literal_eval(results['detail'])
+            if detail.get('status_code', None):
+                status_code = detail['status_code']
+                detail = detail['detail']
 
-        if val.ok:
-            status = True
-        return results['data']['result']['output']
+        if not val.ok:
+            return {'status': status_code, 'output': results['detail']}
+
+        return {'status': results['status'], 'output': results['data']['result']['output']}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -193,6 +215,7 @@ if __name__ == "__main__":
         print(prompt)
         output = asyncio.run(
             llm.inference(
+                client_id = client_id,
                 prompt_str = prompt
             )
         )

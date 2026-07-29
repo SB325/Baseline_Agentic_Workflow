@@ -53,8 +53,8 @@ class requests_util:
         response.status_code =500
         
         response = self.session.get(url=url_in, params=params_dict, headers=headers_in, stream=stream_in, timeout=10)
-        if response.status_code != 200:
-            print(f"Post Error! Code {response.status_code}: {response.reason}") 
+        # if response.status_code != 200:
+        #     print(f"Post Error! Code {response.status_code}: {response.reason}") 
             
         self.set_request_time()    
         return response    
@@ -65,8 +65,8 @@ class requests_util:
         else:
             response = self.session.post(url=url_in, data=data_in, json=json_in)
 
-        if response.status_code != 200:
-            print(f"Post Error! Code {response.status_code}: {response.reason}") 
+        # if response.status_code != 200:
+        #     print(f"Post Error! Code {response.status_code}: {response.reason}") 
         return response  
     
     def put(self, url_in: str, data_in: str, json_in: dict = {}):
