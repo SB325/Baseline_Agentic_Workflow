@@ -12,7 +12,7 @@ from pathlib import Path
 parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-from server.nodes.subagent.orchestration.llm_inference import LLMInference
+from server.agent.layers.orchestration.llm_inference import LLMInference
 import asyncio
 import argparse
 
