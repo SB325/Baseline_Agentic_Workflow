@@ -31,6 +31,8 @@ import torch.distributed as dist
 from util.requests_util import requests_util
 import builtins
 builtins.PILImageResampling = Image.Resampling
+from typing import Optional, Dict, Any
+from pydantic import BaseModel, Field, ValidationError
 
 load_dotenv()
 LLM_DIR = os.getenv("LLM_IMAGE_MODEL_NT_STORAGE")
@@ -39,6 +41,11 @@ indocker = bool(os.getenv("INDOCKER"))
 logging.getLogger("vllm").setLevel(logging.ERROR)
 
 requests = requests_util(rate_limit = 1)
+
+# Web Search Tool call argument model
+class WebSearchArguments(BaseModel):
+    query: str = Field(..., description="The main search query to look up on the web.")
+    count: Optional[int] = Field(default=10, description="The number of results to return.")
 
 def get_vram_status(verbose: bool = False):
     pynvml.nvmlInit()
@@ -201,6 +208,7 @@ class UserSession:
             prompt_str_: str,
             max_tokens: int = 256,
             remember: bool = False,
+            tools: list = None,
             verbose: bool = False):
         max_tokens = 64 if max_tokens < 64 else max_tokens
         print(f"Max Tokens: {max_tokens}")
@@ -221,23 +229,6 @@ class UserSession:
             ]
         else:
             prompt['content'] = prompt_str_
-
-        # tools = [
-        #     {
-        #         "type": "function",
-        #         "function": {
-        #             "name": "get_weather",
-        #             "description": "Get current weather for a city",
-        #             "parameters": {
-        #                 "type": "object",
-        #                 "properties": {
-        #                     "location": {"type": "string", "description": "City name"}
-        #                 },
-        #                 "required": ["location"]
-        #             }
-        #         }
-        #     }
-        # ]
 
         # vLLM needs a unique ID for every single request
         # We combine client_id + a request hash to keep them distinct
@@ -271,7 +262,7 @@ class UserSession:
             sampling_params=sampling_params, 
             request_id=request_id,
         )
-    
+
         reason = None
         result = {'status': None, 'output': None}
         async for request_output in results_generator:
@@ -385,6 +376,18 @@ async def main(
             lambda s=sig: asyncio.create_task(shutdown(s.name))
         )
 
+    # Test tools here, but pass in through argument in the future
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "brave_web_search",
+                "description": "Performs a global web search query using Brave Engine.",
+                "parameters": WebSearchArguments.model_json_schema()
+            }
+        }
+    ]
+
     while True:  
         if use_api:
             response = requests.post(
@@ -409,6 +412,7 @@ async def main(
                 prompt_str_=prompt_str,
                 max_tokens=int(max_tokens),
                 remember=conversate,
+                tools=tools,
                 verbose=False,
             )
             prompt_str = input("Your reply: (or press Enter to quit):\n") 
