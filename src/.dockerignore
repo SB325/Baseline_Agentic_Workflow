@@ -1,2 +1,4 @@
+# Dockerfile builds vllm server only
 **/.venv
-./src/server/nodes/llm_inference.py
+**/__pycache__
+/agent

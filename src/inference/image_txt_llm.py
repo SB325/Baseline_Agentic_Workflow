@@ -1,5 +1,5 @@
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 # Disable vllm's custom logging configuration
 os.environ["VLLM_CONFIGURE_LOGGING"] = "0"

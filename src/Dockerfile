@@ -11,15 +11,13 @@ RUN apt-get update && apt-get install -y \
 # RUN python -m venv /opt/venv
 # ENV PATH="/opt/venv/bin:$PATH"
 
-COPY server/requirements.txt /app/
+COPY requirements.txt /app/
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r /app/requirements.txt
 
-COPY server/ /app/
-COPY util/ /util
-
 # Set working directory
 WORKDIR /app
+COPY . .
 
 # Expose port
 # EXPOSE 8001
@@ -31,4 +29,4 @@ ENV HOST=0.0.0.0
 ENV VLLM_PORT=${VLLM_PORT}
 
 # Run the FastAPI application
-CMD python rest/llm_client_sessions.py
+CMD python ./rest/llm_client_sessions.py
