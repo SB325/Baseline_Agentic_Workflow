@@ -9,11 +9,13 @@ from typing import Dict, Any, Optional, List
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client 
 import anyio
 import json
 from anyio import create_task_group
 import subprocess
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 load_dotenv()
 brave_search_service_name = os.getenv("BRAVE_SEARCH_SERVICE_NAME")
@@ -22,7 +24,7 @@ brave_search_port = int(os.getenv("BRAVE_SEARCH_PORT"))
 # Web Search Tool call argument model
 class WebSearchArguments(BaseModel):
     query: str = Field(..., description="The main search query to look up on the web.")
-    count: Optional[int] = Field(default=10, description="The number of results to return.")
+    count: Optional[int] = Field(default=5, description="The number of results to return.")
 
 # Schema for validation
 TOOL_SCHEMAS: Dict[str, type[BaseModel]] = {
@@ -71,8 +73,8 @@ class BraveMCPClientInterface:
 
         if self.mode == "sse":
             # Context manager tracking for Server-Sent Events (Web address)
-            self._exit_stack = sse_client(url=self.address_or_cmd)
-            read_stream, write_stream = await self._exit_stack.__aenter__()
+            self._exit_stack = streamablehttp_client(self.address_or_cmd)
+            read_stream, write_stream, _ = await self._exit_stack.__aenter__()
         else:
             # Context manager tracking for standard local sub-processes
             server_params = StdioServerParameters(
@@ -80,8 +82,8 @@ class BraveMCPClientInterface:
                 args=self.args,
                 env=self.env
             )
-            self._exit_stack = stdio_client(server_params)
-            read_stream, write_stream = await self._exit_stack.__aenter__()
+            self._exit_stack = streamablehttp_client(server_params)
+            read_stream, write_stream, _ = await self._exit_stack.__aenter__()
 
         # Instantiate session lifecycle
         self.session = ClientSession(read_stream, write_stream)
@@ -146,7 +148,7 @@ class BraveMCPClientInterface:
 
 class AugmentationManager():
     def __init__(self):
-        self.client = BraveMCPClientInterface(mode="sse", address_or_cmd=f"{get_bravesearch_address()}/sse")
+        self.client = BraveMCPClientInterface(mode="sse", address_or_cmd=f"{get_bravesearch_address()}/mcp")
         print(f"Server alive before initialization? {self.client.is_running}") # False
         self.vllm_ready_tools = None
 
@@ -232,11 +234,28 @@ class AugmentationManager():
 
 async def main():
     # aenter and aexit run tool_connect and disconnect automatically
+    # ****** TOOLS ($0.005 per request) ********
+    # brave_web_search - 
+    # brave_local_search - Searches for local businesses, restaurants, and physical places
+    # brave_news_search - Pulls current news articles and breaking updates
+    # brave_image_search - Finds images across the web, returning metadata like image URLs, 
+    #           dimensions, and properties
+    # brave_video_search - Searches for videos and returns rich metadata including titles, 
+    #           descriptions, durations, and thumbnail URLs
+    # brave_place_search - : Used in tandem with local search to gather deeper, targeted 
+    #           details on specific geographic points of interest
+    # brave_llm_context / brave_summarizer - Fetches heavily optimized web page content or 
+    #           AI-generated summaries specifically formatted to reduce token usage and 
+    #           ground LLM responses
+    # ******************************************
     async with AugmentationManager() as manager:
         search_results = await manager.query(
             target_tool="brave_web_search", 
             search_args={"query": "vLLM performance optimization 2026"}
         )
+        print(manager.show_tools())
+    # print(search_results)
+    # print()
 
 if __name__ == "__main__":
     anyio.run(main)

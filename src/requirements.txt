@@ -5,9 +5,10 @@ fastapi[all]
 fastmcp==0.4.1
 python-dotenv==1.0.1
 vllm==0.19.1
-uvicorn==0.30.0
+uvicorn==0.31.1
 pydantic==2.12.0
 typing_extensions==4.14.1
 pdf2image==1.17.0
 Pillow>=10.4.0
 spacy>=3.7
+mcp>=1.26.0
