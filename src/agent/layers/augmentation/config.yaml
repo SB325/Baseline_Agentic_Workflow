@@ -1,0 +1,94 @@
+# This config specifies a subset of available websearchargument tool definitions 
+#   to pass to the LLM. This is to conserve space in the context window.
+# Without this config, all tool endpoint descriptions will be sent to the LLM, which
+#   can be in the thousands of tokens!
+# NOTE: Any values assigned to keys in this config will be ignored.
+
+# Comment out fields to omit from tool description object
+base_fields: &base
+  query:            # [Required] The main search query to look up on the web.
+  # country:          # Search query country, where the results come from. Formatted as 2 character country code.
+  # search_lang:      # The search language preference. The 2 or more character language code for which the search results are provided.
+  count:            # The number of results to return.
+  spellcheck:       # Whether to spellcheck the provided query.
+
+image_search_fields: &image_fields
+  <<: *base
+  # safesearch:       # Filters search results for adult content. The following values are supported: 'off' - No filtering. 'moderate' - Filter out explicit content. 'strict' - Filter out explicit and suggestive content. The default value is 'moderate.
+  
+video_search_fields: &video_fields
+  <<: *image_fields
+  # ui_lang:          # The language of the UI. 2 or more character language code for which search results are provided.
+  # offset:           # Pagination offset (max 9, default 0).
+  # freshness:        # Filters search results by when they were discovered. The following values are supported: 'pd' - Discovered within the last 24 hours. 'pw' - Discovered within the last 7 Days. 'pm' - Discovered within the last 31 Days. 'py' - Discovered within the last 365 Days. 'YYYY-MM-DDtoYYYY-MM-DD' - Timeframe is also supported by specifying the date range e.g. 2022-04-01to2022-07-30.
+
+news_search_fields: &news_fields
+  <<: *video_fields
+  # extra_snippets:   # A snippet is an excerpt from a page you get as a result of the query, and extra_snippets allow you to get up to 5 additional, alternative excerpts. Only available under Free AI, Base AI, Pro AI, Base Data, Pro Data and Custom plans.
+  # goggles:          # Goggles act as a custom re-ranking on top of Brave's search index. The parameter supports both a url where the Goggle is hosted or the definition of the Goggle. Multiple goggle URLs and/or definitions can beprovided in an array. For more details, refer to the Goggles repository (i.e., https://github.com/brave/goggles-quickstart).
+
+
+web_local_search_fields: &web_local_fields     
+  <<: *news_fields
+  # text_decorations:   # Whether display strings (e.g. result snippets) should include decoration markers (e.g. highlighting characters).
+  # result_filter:      # Result filter (default ['web', 'query']).          
+  # units:              # The measurement units. If not provided, units are derived from search country.    
+  # summary:            # This parameter enables summary key generation in web search results. This is required for summarizer to be enabled.
+
+place_search_fields: &place_fields
+  <<: *image_fields
+  latitide:
+  longitude:
+  location:
+  ui_lang:
+  units:
+  geoloc:
+  api-version:
+  accept:
+  cache-control:
+  user-agent:
+
+llm_context_fields: &llm_fields
+  <<: *base
+  maximum_number_of_urls: 
+  maximum_number_of_tokens: 
+  maximum_number_of_snippets: 
+  context_threshold_mode: 
+  maximum_number_of_tokens_per_url: 
+  maximum_number_of_snippets_per_url: 
+  goggles: 
+  freshness: 
+  enable_local: 
+  enable_source_metadata: 
+  x-loc-lat: 
+  x-loc-long: 
+  x-loc-city: 
+  x-loc-state: 
+  x-loc-state-name: 
+  x-loc-country: 
+  x-loc-postal-code: 
+  api-version: 
+  accept: 
+  cache-control: 
+  user-agent:
+
+# Comment out functions to omit from tool description object
+functions:
+  brave_web_search:
+    <<: *web_local_fields
+  # brave_local_search:
+  #   <<: *web_local_fields
+  # brave_video_search:
+  #   <<: *video_fields
+  # brave_image_search:
+  #   <<: *image_fields 
+  # brave_news_search:
+  #   <<: *news_fields
+  # brave_summarizer:   
+  #   key:                # [Required]
+  #   entity_info:
+  #   inline_references:
+  # brave_llm_context:
+  #   <<: *llm_fields
+  # brave_place_search:
+  #   <<: *place_fields

@@ -12,3 +12,4 @@ pdf2image==1.17.0
 Pillow>=10.4.0
 spacy>=3.7
 mcp>=1.26.0
+ruamel.yaml>=0.19.1

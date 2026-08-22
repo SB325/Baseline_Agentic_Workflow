@@ -17,10 +17,19 @@ import subprocess
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from enum import Enum
+from ruamel.yaml import YAML
 
 load_dotenv()
 brave_search_service_name = os.getenv("BRAVE_SEARCH_SERVICE_NAME")
 brave_search_port = int(os.getenv("BRAVE_SEARCH_PORT"))
+
+# ruamel CommentedMap to dict conversion
+# def to_dict(obj):
+#     if isinstance(config, dict):
+#         return {k: to_dict(v) for k, v in config.items()}
+#     elif isinstance(config):
+#         return [to_dict(v) for v in config]
+#     return obj
 
 class FreshnessEnum(str, Enum):
     PAST_DAY = "pd"
@@ -35,14 +44,14 @@ class WebSearchArguments(BaseModel):
     country: Optional[str] = Field(default='US', description="Search query country, where the results come from. Formatted as 2 character country code.")
     search_lang: Optional[str] = Field(default='en', description="The search language preference. The 2 or more character language code for which the search results are provided.")
     ui_lang: Optional[str] = Field(default='en-US', description="The language of the UI. 2 or more character language code for which search results are provided.")
-    offset: Optional[int] = Field(default=0, minimum=0, maximum=9, description="Pagination offset (max 9, default 0).")
+    offset: Optional[int] = Field(default=0, ge=0, le=9, description="Pagination offset (max 9, default 0).")
     safesearch: Optional[str] = Field(default='moderate', description="Filters search results for adult content. The following values are supported: 'off' - No filtering. 'moderate' - Filter out explicit content. 'strict' - Filter out explicit and suggestive content. The default value is 'moderate.")
     freshness: Optional[FreshnessEnum | str] = Field(default='py', description="Filters search results by when they were discovered. The following values are supported: 'pd' - Discovered within the last 24 hours. 'pw' - Discovered within the last 7 Days. 'pm' - Discovered within the last 31 Days. 'py' - Discovered within the last 365 Days. 'YYYY-MM-DDtoYYYY-MM-DD' - Timeframe is also supported by specifying the date range e.g. 2022-04-01to2022-07-30.")
     text_decorations: Optional[bool] = Field(default=False, description="Whether display strings (e.g. result snippets) should include decoration markers (e.g. highlighting characters).")
     spellcheck: Optional[bool] = Field(default=True, description="Whether to spellcheck the provided query.")
-    # result_filter: Optional[list] = Field(default=['web','query'], description="Result filter (default ['web', 'query']).")
-    # goggles: Optional[list | str] = Field(default=5, description="Goggles act as a custom re-ranking on top of Brave's search index. The parameter supports both a url where the Goggle is hosted or the definition of the Goggle. Multiple goggle URLs and/or definitions can beprovided in an array. For more details, refer to the Goggles repository (i.e., https://github.com/brave/goggles-quickstart).")
-    units: Optional[str] = Field(default='imperial', description="The measurementn units. If not provided, units are derived from search country.")
+    result_filter: Optional[list] = Field(default=['web','query'], description="Result filter (default ['web', 'query']).")
+    goggles: Optional[list | str] = Field(default=5, description="Goggles act as a custom re-ranking on top of Brave's search index. The parameter supports both a url where the Goggle is hosted or the definition of the Goggle. Multiple goggle URLs and/or definitions can beprovided in an array. For more details, refer to the Goggles repository (i.e., https://github.com/brave/goggles-quickstart).")
+    units: Optional[str] = Field(default='imperial', description="The measurement units. If not provided, units are derived from search country.")
     extra_snippets: Optional[bool] = Field(default=False, description="A snippet is an excerpt from a page you get as a result of the query, and extra_snippets allow you to get up to 5 additional, alternative excerpts. Only available under Free AI, Base AI, Pro AI, Base Data, Pro Data and Custom plans.")
     summary: Optional[bool] = Field(default=False, description="This parameter enables summary key generation in web search results. This is required for summarizer to be enabled.")
 
@@ -167,9 +176,10 @@ class BraveMCPClientInterface:
             return f"Error executing Brave Search tool call: {str(e)}"
 
 class AugmentationManager():
-    def __init__(self):
+    def __init__(self, config_dict):
         self.client = BraveMCPClientInterface(mode="sse", address_or_cmd=f"{get_bravesearch_address()}/mcp")
         print(f"Server alive before initialization? {self.client.is_running}") # False
+        self.config = config_dict
         self.vllm_ready_tools = None
 
     async def tool_connect(self):
@@ -180,6 +190,25 @@ class AugmentationManager():
         print(f"Successfully converted {len(self.vllm_ready_tools)} tools for llm.chat().")
         
     def show_tools(self):
+        # downselect tool list and properties to limit context window consumption
+        if self.config:
+            config_tools = list(self.config.keys())
+            # Downselect tools
+            toolbox = [v for v in self.vllm_ready_tools if v['function']['name'] in config_tools]
+            
+            # Downselect search properties
+            for tool in toolbox:
+                name = tool['function']['name']
+                base_properties = list(tool['function']['parameters']['properties'].keys())
+                drop_properties = []
+                for field in base_properties:
+                    # If default field is not in config field set, drop the field
+                    if field not in self.config.get(name).keys():
+                        drop_properties.append(field)
+                [tool['function']['parameters']['properties'].pop(field) for field in drop_properties]
+            
+            self.vllm_ready_tools = toolbox
+
         return self.vllm_ready_tools
 
     def parse_llm_response(self, llm_response: str):
@@ -235,7 +264,7 @@ class AugmentationManager():
         
         raw_web_context = await self.client.execute_search(target_tool, search_args)
         print("\n--- Gathered Search Payload for vLLM Context ---")
-        print(raw_web_context[:300] + "...") # Preview output snippet
+        # print(raw_web_context[:300] + "...") # Preview output snippet
 
         return raw_web_context
             
@@ -252,9 +281,9 @@ class AugmentationManager():
         """Triggers automatically when exiting the 'async with' block, even on errors."""
         await self.tool_disconnect()
 
-async def main():
+async def main(config_dict: dict):
     # aenter and aexit run tool_connect and disconnect automatically
-    # ****** TOOLS ($0.005 per request) ********
+    # ****** TOOL FUNCTIONS ($0.005 per request) ********
     # brave_web_search - 
     # brave_local_search - Searches for local businesses, restaurants, and physical places
     # brave_news_search - Pulls current news articles and breaking updates
@@ -267,16 +296,40 @@ async def main():
     # brave_llm_context / brave_summarizer - Fetches heavily optimized web page content or 
     #           AI-generated summaries specifically formatted to reduce token usage and 
     #           ground LLM responses
+    #
+    # Configure available subset of tools and parameters for the LLM to select from using a
+    #   .json file in the home directory. The augmentation layer will look for this file
+    #   and use it to downselect from the complete set. LLM prompt requests for tools will
+    #   be validated against this pydantic subset in case it discovers unselected tools/
+    #   parameters from an online search.
     # ******************************************
-    async with AugmentationManager() as manager:
-        search_results = await manager.query(
-            target_tool="brave_web_search", 
-            search_args={"query": "vLLM performance optimization 2026"}
-        )
-        pdb.set_trace()
-        print(manager.show_tools())
-    # print(search_results)
-    # print()
+
+    async with AugmentationManager(config_dict) as manager:
+        search_results = []
+        tools = list(config_dict.keys())
+        for tool in tools:
+            search_results.append(
+                    await manager.query(
+                    target_tool=tool, 
+                    search_args={"query": "vLLM performance optimization 2026",
+                        "count": 2}
+                )
+            )
+
+        print(f"Using {len(manager.show_tools())} tools.")
+    print(search_results)
 
 if __name__ == "__main__":
-    anyio.run(main)
+    config_dict = {}
+    if Path("config.yaml").exists():
+        yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
+        with open("config.yaml", "r") as f:
+            config = yaml.load(f).get('functions', None)
+
+    if not config:
+        print(f"Config specifies no tool functions to include!\n\n" + \
+            "Without a config yaml, the FULL suite of function " + \
+            "calls will be provided to the LLM, *severely* limiting " + \
+            "the context window!\n\n")
+
+    anyio.run(main, config)
