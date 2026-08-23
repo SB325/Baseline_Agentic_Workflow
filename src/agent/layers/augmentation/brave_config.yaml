@@ -74,16 +74,16 @@ llm_context_fields: &llm_fields
 
 # Comment out functions to omit from tool description object
 functions:
-  brave_web_search:
-    <<: *web_local_fields
+  # brave_web_search:
+  #   <<: *web_local_fields
   # brave_local_search:
   #   <<: *web_local_fields
   # brave_video_search:
   #   <<: *video_fields
   # brave_image_search:
   #   <<: *image_fields 
-  # brave_news_search:
-  #   <<: *news_fields
+  brave_news_search:
+    <<: *news_fields
   # brave_summarizer:   
   #   key:                # [Required]
   #   entity_info:

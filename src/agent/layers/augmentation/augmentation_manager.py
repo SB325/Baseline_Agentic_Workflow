@@ -4,7 +4,7 @@ from pathlib import Path
 parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent.parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-import asyncio
+# import asyncio
 from typing import Dict, Any, Optional, List
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -12,7 +12,7 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client 
 import anyio
 import json
-from anyio import create_task_group
+# from anyio import create_task_group
 import subprocess
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -22,14 +22,6 @@ from ruamel.yaml import YAML
 load_dotenv()
 brave_search_service_name = os.getenv("BRAVE_SEARCH_SERVICE_NAME")
 brave_search_port = int(os.getenv("BRAVE_SEARCH_PORT"))
-
-# ruamel CommentedMap to dict conversion
-# def to_dict(obj):
-#     if isinstance(config, dict):
-#         return {k: to_dict(v) for k, v in config.items()}
-#     elif isinstance(config):
-#         return [to_dict(v) for v in config]
-#     return obj
 
 class FreshnessEnum(str, Enum):
     PAST_DAY = "pd"
@@ -90,10 +82,10 @@ class BraveMCPClientInterface:
         self._exit_stack = None
         self._is_running = False
 
-    @property
-    def is_running(self) -> bool:
-        """Exposes the real-time operational status of the MCP server connection."""
-        return self._is_running and self.session is not None
+    # @property
+    # def is_running(self) -> bool:
+    #     """Exposes the real-time operational status of the MCP server connection."""
+    #     return self._is_running and self.session is not None
 
     async def connect(self):
         """Establishes the connection lifecycle to the target MCP Server."""
@@ -124,14 +116,14 @@ class BraveMCPClientInterface:
 
     async def disconnect(self):
         """Gracefully disconnects and shuts down tracking channels."""
-        self._is_running = False
         if self.session:
             await self.session.__aexit__(None, None, None)
             self.session = None
         if self._exit_stack:
             await self._exit_stack.__aexit__(None, None, None)
             self._exit_stack = None
-        print("[MCP] Client disconnected. Status: STOPPED.")
+        self._is_running = False
+        print("Bravesearch [MCP] Client disconnected. Status: STOPPED.")
 
     async def get_vllm_tools_schema(self) -> List[Dict[str, Any]]:
         """
@@ -139,7 +131,7 @@ class BraveMCPClientInterface:
         to OpenAI/vLLM compliant chat tool schemas.
         """
         if not self.is_running:
-            raise RuntimeError("MCP Client is not connected. Call .connect() first.")
+            raise RuntimeError("Bravesearch MCP Client is not connected. Call .connect() first.")
 
         mcp_manifest = await self.session.list_tools()
         vllm_tools = []
@@ -266,6 +258,8 @@ class AugmentationManager():
         print("\n--- Gathered Search Payload for vLLM Context ---")
         # print(raw_web_context[:300] + "...") # Preview output snippet
 
+        # Parse url fields and get clean markdown of content from firecrawl API
+
         return raw_web_context
             
     async def tool_disconnect(self):
@@ -321,9 +315,11 @@ async def main(config_dict: dict):
 
 if __name__ == "__main__":
     config_dict = {}
-    if Path("config.yaml").exists():
+    config_file = "brave_config.yaml"
+    
+    if Path(config_file).exists():
         yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
-        with open("config.yaml", "r") as f:
+        with open(config_file, "r") as f:
             config = yaml.load(f).get('functions', None)
 
     if not config:
