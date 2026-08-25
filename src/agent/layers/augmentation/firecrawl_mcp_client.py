@@ -15,6 +15,8 @@ from enum import Enum
 from ruamel.yaml import YAML
 import httpx
 import json
+import copy
+from schemas.firecrawl_schemas import TOOL_SCHEMAS
 
 load_dotenv()
 firecrawl_service_name = os.getenv("FIRECRAWL_SERVICE_NAME")
@@ -31,30 +33,16 @@ def get_firecrawl_address():
 
     return f'http://{ip}:{firecrawl_port}'
 
-def fetch_container_tool_definitions(container_url: str = f"{get_firecrawl_address()}/mcp"):
-    """
-    Sends a Streamable HTTP discovery request to inspect the 
-    available tools, parameter limits, and definitions.
-    """
-    # 1. Modern Streamable HTTP routing requires explicit MCP headers
-    # pdb.set_trace()
-    headers = {
-        "Accept": "application/json, text/event-stream", 
-        "Content-Type": "application/json",
-        "Mcp-Method": "tools/list"  # Tells gateways/servers the exact primitive route
-    }
-    
-    # 2. Construct standard JSON-RPC 2.0 Discovery Payload
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/list",
-        "params": {}
-    }
-    
-    try:
-        with httpx.Client() as client:
-            with client.stream("POST", container_url, json=payload, headers=headers) as response:
+class AugmentationManager():
+    def __init__(self, config_dict, container_url: str = f"{get_firecrawl_address()}/mcp"):
+        self.client = httpx.Client()
+        self.config = config_dict
+        self.toolbox = None
+        self.url = container_url
+
+    async def response(payload, headers):
+        try:
+            with self.client.stream("POST", self.url, json=payload, headers=headers) as response:
                 response.raise_for_status()
                 
                 content_type = response.headers.get("content-type", "")
@@ -93,25 +81,140 @@ def fetch_container_tool_definitions(container_url: str = f"{get_firecrawl_addre
                 
                 else:
                     raise ValueError(f"Unsupported content type returned by server: {content_type}")
+
+        except Exception as e:
+            print(f"Request failed: {e}")
+            return []
+
+    async def show_tools():
+        """
+        Sends a Streamable HTTP discovery request to inspect the 
+        available tools, parameter limits, and definitions.
+        """
+        # 1. Modern Streamable HTTP routing requires explicit MCP headers
+        headers = {
+            "Accept": "application/json, text/event-stream", 
+            "Content-Type": "application/json",
+            "Mcp-Method": "tools/list"  # Tells gateways/servers the exact primitive route
+        }
+        
+        # 2. Construct standard JSON-RPC 2.0 Discovery Payload
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {}
+        }
             
-    except Exception as e:
-        print(f"Handshake failed: {e}")
-        return []
+        selected_tools = list(self.config.keys())
+        self.toolbox = self.response(payload, headers)
+
+        toolbox = self.toolbox['result']['tools']
+        slim_result = copy.deepcopy(self.toolbox)
+        slim_result['result']['tools'] = []
+
+        for cnt, tool in enumerate(toolbox):
+            if tool['name'] in selected_tools:
+                slim_result['result']['tools'].append(tool)
+
+        self.toolbox = slim_result
+
+        return self.toolbox
+
+    def parse_llm_response(self, llm_response: str):
+        # takes llm response, checks it for a tool call, and if present, runs the tool and presents the MCP response
+        response_data = json.loads(llm_response.read())
+
+        choice = response_data["choices"][0]
+        message = choice["message"]
+        
+        try:
+            if "tool_calls" in message and message["tool_calls"]:
+                for tool_call in message["tool_calls"]:
+                    func_data = tool_call["function"]
+                    function_name = func_data["name"]
+                    raw_arguments_str = func_data["arguments"]
+                    
+                    print(f"[VLLM ATTEMPT] Model generated tool call: '{function_name}'")
+                    print(f"[VLLM PAYLOAD] Raw JSON String: {raw_arguments_str}")
+                    
+                    # Validate tool request object
+                    schema_cls = TOOL_SCHEMAS.get(function_name)
+                    if not schema_cls:
+                        print(f"[VALIDATION FAILED] Unknown tool name encountered: {function_name}")
+                        continue
+
+                    try:
+                        # Parse raw string JSON safely
+                        parsed_json = json.loads(raw_arguments_str)
+                        
+                        # Enforce validation using Pydantic
+                        validated_arguments = schema_cls(**parsed_json)
+                        print("[VALIDATION PASSED] Tool call syntax and arguments conform fully to the JSON Schema!")
+                        
+                        self.query(target_tool=function_name, search_args=parsed_json)
+                        print(f"[MCP RESPONSE] {result_string}")
+                        
+                    except json.JSONDecodeError:
+                        print("[VALIDATION FAILED] Invalid JSON structure returned by vLLM.")
+                    except ValidationError as e:
+                        print(f"[VALIDATION FAILED] Parameter data type mismatches or missing required keys:\n{e}")
+            else:
+                print(f"[ASSISTANT DIRECT RESPONSE]: {message['content']}")
+        
+        except urllib.error.URLError as e:
+            print(f"Connection to local vLLM instance failed: {e.reason}")
+
+        return result_string
+
+    # TODO: figure out how to query this server
+    async def query(self, target_tool: str, search_args: dict):
+        # Typically you'd capture 'tool_call.function.name' and 'json.loads(tool_call.function.arguments)' from llm
+        # target_tool = "brave_web_search"
+        # search_args = {"query": "vLLM latest release news 2026"}
+        
+        headers = {}
+        payload = {}
+
+        web_scrape = self.response(headers, payload)
+        print("\n--- Gathered Search Payload for vLLM Context ---")
+
+        return web_scrape
+        
+async def main(config_dict: dict):
+    async with AugmentationManager(config_dict) as manager:
+        search_results = []
+        tools = list(config_dict.keys())
+        for tool in tools:
+            search_results.append(
+                    await manager.query(
+                    target_tool=tool, 
+                    search_args={"query": "vLLM performance optimization 2026",
+                        "count": 2}
+                )
+            )
+
+        print(f"Using {len(manager.show_tools())} tools.")
+    print(search_results)
 
 # Execute discovery
 if __name__ == "__main__":
-    result = fetch_container_tool_definitions()
-    toolbox = result['result']['tools']
+    config_dict = {}
+    config_file = "firecrawl_config.yaml"
+    
+    if Path(config_file).exists():
+        yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
+        with open(config_file, "r") as f:
+            config = yaml.load(f).get('functions', None)
+
+    if not config:
+        print(f"Config specifies no tool functions to include!\n\n" + \
+            "Without a config yaml, the FULL suite of function " + \
+            "calls will be provided to the LLM, *severely* limiting " + \
+            "the context window!\n\n")
+
+    anyio.run(main, config)
+
     pdb.set_trace()
-    # for tool in toolbox:
-    #     name = tool['name']
-    #     description = tool['description']
-    #     properties = tool['inputSchema']['properties']
-    #     for property in properties:
-    #         type = property['type']
-    #         # if enum is a key, need validataion
-    #     required_field = tool['inputSchema']['required']
-    #     additionalProperties = tool['inputSchema']['additionalProperties']
-        
     # result['result']['tools'] = list of tools
     # print(json.dumps(result, indent=2))
