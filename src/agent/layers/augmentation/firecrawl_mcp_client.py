@@ -16,6 +16,7 @@ from ruamel.yaml import YAML
 import httpx
 import json
 import copy
+import codecs
 from schemas.firecrawl_schemas import TOOL_SCHEMAS
 
 load_dotenv()
@@ -35,7 +36,7 @@ def get_firecrawl_address():
 
 class Firecrawl_MCP_Client():
     def __init__(self, tool_config, container_url: str = f"{get_firecrawl_address()}/mcp"):
-        self.client = httpx.Client()
+        self.client = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
         self.tool_config = tool_config
         self.toolbox = None
         self.url = container_url
@@ -186,15 +187,8 @@ class Firecrawl_MCP_Client():
                 "name": target_tool,
                 "arguments": {
                     "url": str(search_args['url']),
-                    "formats": ["json"],
-                    'jsonOptions': {
-                        'prompt': 'Scrape the page. Get text only. Ignore links.'
-                    },
-                    # "onlyMainContent": True,      # 1. Drops sidebars, headers, footers, & nav links
-                    # "blockAds": True,             # 2. Stops heavy ad scripts and network tracking
-                    # "removeBase64Images": True,   # 3. Prevents heavy embedded image data strings
-                    # "excludeTags": ["img", "a"],  # 4. Manually drops standard image and link HTML tags
-                    # "timeout": 60000   
+                    "formats": search_args['formats'],
+                    'jsonOptions': search_args['jsonOptions'],
                 }
             },
             "id": 2
@@ -213,7 +207,17 @@ async def main(config_dict: dict):
         search_results.append(
                 await client.query(
                 target_tool=tool, 
-                search_args={"url": "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html",
+                search_args={
+                    "url": "https://docs.stripe.com/api/charges",
+                    "formats": ['markdown'],
+                    "onlyMainContent": True,      # 1. Drops sidebars, headers, footers, & nav links
+                    "blockAds": True,             # 2. Stops heavy ad scripts and network tracking
+                    "removeBase64Images": True,   # 3. Prevents heavy embedded image data strings
+                    "excludeTags": ["img", "a"],  # 4. Manually drops standard image and link HTML tags
+                    "timeout": 60000,   
+                    "jsonOptions" : {
+                        'prompt': 'Scrape the page. Get text only. Ignore links.'
+                    },
                     }
             )
         )
@@ -246,6 +250,20 @@ if __name__ == "__main__":
     if not results[0]:
         print("Nothing returned from query.")
     elif results[0]['result'].get('isError', None):
-        print(f"Error in query. \n\n{results[0]['result']['content'][0]['text']}")
+        print(f"Error in query. \n\n{results[0]['result']['isError']}")
     else:
-        print(json.dumps(results, indent=2))
+        text = results[0]['result']['content'][0]['text']
+        data = json.loads(text)
+        # pdb.set_trace()
+        if data.get('markdown', None):
+            scraped_text = data['markdown']
+            clean_markdown = codecs.decode(scraped_text, "unicode_escape")
+            # pdb.set_trace()
+            print(clean_markdown)
+        elif data.get('json', None):
+            scraped_text = data['json']['pageContent']
+            flat_text = " ".join(scraped_text.split())
+            # pdb.set_trace()
+            print(json.dumps(flat_text, indent=2))
+        else:
+            print(f"Key value in results object not recognized. \n Keys: {results.keys()}")
