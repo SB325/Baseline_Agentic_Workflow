@@ -2,7 +2,6 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, HttpUrl
 
-
 # --- Enums ---
 class FormatEnum(str, Enum):
     MARKDOWN = "markdown"
@@ -17,10 +16,8 @@ class FormatEnum(str, Enum):
     QUERY = "query"
     AUDIO = "audio"
 
-
 class ParserEnum(str, Enum):
     PDF = "pdf"
-
 
 class ActionTypeEnum(str, Enum):
     WAIT = "wait"
@@ -136,5 +133,5 @@ class FirecrawlScrapeArgs(BaseModel):
 
 # Schema for validation
 TOOL_SCHEMAS: Dict[str, type[BaseModel]] = {
-    "brave_web_search": FirecrawlScrapeArgs,
+    "firecrawl_scrape": FirecrawlScrapeArgs,
 }

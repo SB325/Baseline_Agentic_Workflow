@@ -33,60 +33,60 @@ def get_firecrawl_address():
 
     return f'http://{ip}:{firecrawl_port}'
 
-class AugmentationManager():
-    def __init__(self, config_dict, container_url: str = f"{get_firecrawl_address()}/mcp"):
+class Firecrawl_MCP_Client():
+    def __init__(self, tool_config, container_url: str = f"{get_firecrawl_address()}/mcp"):
         self.client = httpx.Client()
-        self.config = config_dict
+        self.tool_config = tool_config
         self.toolbox = None
         self.url = container_url
 
-    async def response(payload, headers):
+    async def response(self, payload, headers):
         try:
-            with self.client.stream("POST", self.url, json=payload, headers=headers) as response:
-                response.raise_for_status()
-                
-                content_type = response.headers.get("content-type", "")
-                
-                # CASE 1: Standard immediate JSON response (e.g., tools/list)
-                if "application/json" in content_type:
-                    response.read() # Consume response text
-                    return response.json()
-                
-                # CASE 2: The server returned an SSE Text Stream (e.g., firecrawl_crawl)
-                elif "text/event-stream" in content_type:
-                    full_stream_text = ""
-                    aggregated_json_rpc = {}
+            response = self.client.post(self.url, json=payload, headers=headers)
+
+            response.raise_for_status()
+            
+            content_type = response.headers.get("content-type", "")
+            # CASE 1: Standard immediate JSON response (e.g., tools/list)
+            if "application/json" in content_type:
+                response.read() # Consume response text
+                return response.json()
+            
+            # CASE 2: The server returned an SSE Text Stream (e.g., firecrawl_crawl)
+            elif "text/event-stream" in content_type:
+                full_stream_text = ""
+                aggregated_json_rpc = {}
+
+                # Read the response line-by-line
+                for line in response.iter_lines():
+                    if not line:
+                        continue
                     
-                    # Read the response line-by-line
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        # SSE streams prefix data payloads with "data: "
-                        if line.startswith("data:"):
-                            clean_json_str = line.replace("data:", "").strip()
-                            
-                            try:
-                                chunk_data = json.loads(clean_json_str)
-                                # Streamable HTTP wraps internal chunks inside JSON-RPC structures
-                                if "result" in chunk_data:
-                                    return chunk_data
-                                aggregated_json_rpc = chunk_data
-                            except json.JSONDecodeError:
-                                # Fallback if your specific container build outputs raw strings instead of JSON patches
-                                full_stream_text += clean_json_str
-                    
-                    # Return the constructed dictionary or fallback structure
-                    return aggregated_json_rpc if aggregated_json_rpc else {"error": "Raw text fallback", "data": full_stream_text}
+                    # SSE streams prefix data payloads with "data: "
+                    if line.startswith("data:"):
+                        clean_json_str = line.replace("data:", "").strip()
+                        try:
+                            chunk_data = json.loads(clean_json_str)
+                            # Streamable HTTP wraps internal chunks inside JSON-RPC structures
+                            if "result" in chunk_data:
+                                return chunk_data
+                            aggregated_json_rpc = chunk_data
+                        except json.JSONDecodeError:
+                            # Fallback if your specific container build outputs raw strings instead of JSON patches
+                            full_stream_text += clean_json_str
                 
-                else:
-                    raise ValueError(f"Unsupported content type returned by server: {content_type}")
+                # Return the constructed dictionary or fallback structure
+                return aggregated_json_rpc if aggregated_json_rpc else {"error": "Raw text fallback", "data": full_stream_text}
+            
+            else:
+                raise ValueError(f"Unsupported content type returned by server: {content_type}")
 
         except Exception as e:
             print(f"Request failed: {e}")
             return []
 
-    async def show_tools():
+    # Typically no LLM will ever recieve the product of this method, firecrawl's config not as important
+    async def show_tools(self):
         """
         Sends a Streamable HTTP discovery request to inspect the 
         available tools, parameter limits, and definitions.
@@ -95,7 +95,7 @@ class AugmentationManager():
         headers = {
             "Accept": "application/json, text/event-stream", 
             "Content-Type": "application/json",
-            "Mcp-Method": "tools/list"  # Tells gateways/servers the exact primitive route
+            # "Mcp-Method": "tools/list"  # Tells gateways/servers the exact primitive route
         }
         
         # 2. Construct standard JSON-RPC 2.0 Discovery Payload
@@ -106,8 +106,8 @@ class AugmentationManager():
             "params": {}
         }
             
-        selected_tools = list(self.config.keys())
-        self.toolbox = self.response(payload, headers)
+        selected_tools = list(self.tool_config.keys())
+        self.toolbox = await self.response(payload, headers)
 
         toolbox = self.toolbox['result']['tools']
         slim_result = copy.deepcopy(self.toolbox)
@@ -167,35 +167,61 @@ class AugmentationManager():
 
         return result_string
 
-    # TODO: figure out how to query this server
     async def query(self, target_tool: str, search_args: dict):
         # Typically you'd capture 'tool_call.function.name' and 'json.loads(tool_call.function.arguments)' from llm
         # target_tool = "brave_web_search"
         # search_args = {"query": "vLLM latest release news 2026"}
         
-        headers = {}
-        payload = {}
+        headers_dict = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            # "method": "tools/call"
+        }
 
-        web_scrape = self.response(headers, payload)
+        # 2. Re-verify payload structure
+        payload_dict = {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": target_tool,
+                "arguments": {
+                    "url": str(search_args['url']),
+                    "formats": ["json"],
+                    'jsonOptions': {
+                        'prompt': 'Scrape the page. Get text only. Ignore links.'
+                    },
+                    # "onlyMainContent": True,      # 1. Drops sidebars, headers, footers, & nav links
+                    # "blockAds": True,             # 2. Stops heavy ad scripts and network tracking
+                    # "removeBase64Images": True,   # 3. Prevents heavy embedded image data strings
+                    # "excludeTags": ["img", "a"],  # 4. Manually drops standard image and link HTML tags
+                    # "timeout": 60000   
+                }
+            },
+            "id": 2
+        }
+
+        web_scrape = await self.response(headers=headers_dict, payload=payload_dict)
         print("\n--- Gathered Search Payload for vLLM Context ---")
 
         return web_scrape
         
 async def main(config_dict: dict):
-    async with AugmentationManager(config_dict) as manager:
-        search_results = []
-        tools = list(config_dict.keys())
-        for tool in tools:
-            search_results.append(
-                    await manager.query(
-                    target_tool=tool, 
-                    search_args={"query": "vLLM performance optimization 2026",
-                        "count": 2}
-                )
+    client = Firecrawl_MCP_Client(config_dict)
+    search_results = []
+    tools = list(config_dict.keys())
+    for tool in tools:
+        search_results.append(
+                await client.query(
+                target_tool=tool, 
+                search_args={"url": "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html",
+                    }
             )
+        )
+    # pdb.set_trace()
+    found_tools = await client.show_tools()
+    print(f"Using {len(found_tools)} tools.")
 
-        print(f"Using {len(manager.show_tools())} tools.")
-    print(search_results)
+    return search_results
 
 # Execute discovery
 if __name__ == "__main__":
@@ -213,8 +239,13 @@ if __name__ == "__main__":
             "calls will be provided to the LLM, *severely* limiting " + \
             "the context window!\n\n")
 
-    anyio.run(main, config)
+    results = anyio.run(main, config)
 
-    pdb.set_trace()
-    # result['result']['tools'] = list of tools
-    # print(json.dumps(result, indent=2))
+    print("Results:\n")
+
+    if not results[0]:
+        print("Nothing returned from query.")
+    elif results[0]['result'].get('isError', None):
+        print(f"Error in query. \n\n{results[0]['result']['content'][0]['text']}")
+    else:
+        print(json.dumps(results, indent=2))
