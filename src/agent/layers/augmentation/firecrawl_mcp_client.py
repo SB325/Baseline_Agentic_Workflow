@@ -35,7 +35,7 @@ def get_firecrawl_address():
     return f'http://{ip}:{firecrawl_port}'
 
 class Firecrawl_MCP_Client():
-    def __init__(self, tool_config, container_url: str = f"{get_firecrawl_address()}/mcp"):
+    def __init__(self, *, tool_config, container_url: str = f"{get_firecrawl_address()}/mcp"):
         self.client = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
         self.tool_config = tool_config
         self.toolbox = None
@@ -200,7 +200,7 @@ class Firecrawl_MCP_Client():
         return web_scrape
         
 async def main(config_dict: dict):
-    client = Firecrawl_MCP_Client(config_dict)
+    client = Firecrawl_MCP_Client(tool_config=config_dict)
     search_results = []
     tools = list(config_dict.keys())
     for tool in tools:
@@ -231,10 +231,12 @@ async def main(config_dict: dict):
 if __name__ == "__main__":
     config_dict = {}
     config_file = "firecrawl_config.yaml"
+    current_dir = Path(__file__).resolve().parent
+    firecrawl_path = os.path.join(current_dir, config_file)
     
-    if Path(config_file).exists():
+    if Path(firecrawl_path).exists():
         yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
-        with open(config_file, "r") as f:
+        with open(firecrawl_path, "r") as f:
             config = yaml.load(f).get('functions', None)
 
     if not config:

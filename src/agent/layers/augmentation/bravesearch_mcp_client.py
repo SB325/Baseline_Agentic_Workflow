@@ -25,7 +25,7 @@ def get_bravesearch_address():
     return f'http://{ip}:{brave_search_port}'
 
 class BraveMCPClient:
-    def __init__(self, mode: str = "sse", 
+    def __init__(self, *, mode: str = "sse", 
         address_or_cmd: str = f"{get_bravesearch_address()}/mcp", 
         args: Optional[List[str]] = None, 
         env: Optional[Dict[str, str]] = None,
@@ -126,7 +126,7 @@ class BraveMCPClient:
                 drop_properties = []
                 for field in base_properties:
                     # If default field is not in config field set, drop the field
-                    if field not in self.brave_config.get(name).keys():
+                    if field not in self.tool_config.get(name).keys():
                         drop_properties.append(field)
                 [tool['function']['parameters']['properties'].pop(field) for field in drop_properties]
             

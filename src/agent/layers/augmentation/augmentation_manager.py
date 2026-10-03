@@ -5,15 +5,16 @@ from pathlib import Path
     # sys.path.insert(0, parent_dir)
 from bravesearch_mcp_client import BraveMCPClient
 from schemas.bravesearch_schemas import TOOL_SCHEMAS
-from firecrawl_mcp_Client import Firecrawl_MCP_Client
+from firecrawl_mcp_client import Firecrawl_MCP_Client
 import anyio
 import json
+import os
 from ruamel.yaml import YAML
 
 class AugmentationManager():
     def __init__(self, config):
-        self.brave_client = BraveMCPClient(config)
-        self.firecrawl_client = Firecrawl_MCP_Client(config_dict)
+        self.brave_client = BraveMCPClient(tool_config=config)
+        self.firecrawl_client = Firecrawl_MCP_Client(tool_config=config)
         print(f"Server alive before initialization? {self.brave_client.is_running}") # False
         self.brave_config = config['brave_config']
         self.firecrawl_config = config['firecrawl_config']
@@ -24,7 +25,7 @@ class AugmentationManager():
         print(f"Server alive after initialization? {self.brave_client.is_running}") # True
 
         self.brave_toolbox = await self.brave_client.get_vllm_tools_schema()
-        print(f"Successfully converted {len(self.toolbox)} tools for llm.chat().")
+        print(f"Successfully converted {len(self.brave_toolbox)} tools for llm.chat().")
         
     def show_tools(self):
         return self.brave_toolbox
@@ -156,19 +157,22 @@ async def main(config: dict):
     print(search_results)
 
 if __name__ == "__main__":
-    brave_config_file = {}
-    firecrawl_config_file = {}
     brave_config_file = "brave_config.yaml"
     firecrawl_config_file = "firecrawl_config.yaml"
-
-    if Path(brave_config_file).exists():
+    current_dir = Path(__file__).resolve().parent
+    brave_path = os.path.join(current_dir, brave_config_file)
+    firecrawl_path = os.path.join(current_dir, firecrawl_config_file)
+    
+    if Path(brave_path).exists():
+        print("Found brave config.")
         yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
-        with open(brave_config_file, "r") as f:
+        with open(brave_path, "r") as f:
             brave_config = yaml.load(f).get('functions', None)
 
-    if Path(firecrawl_config_file).exists():
+    if Path(firecrawl_path).exists():
+        print("Found Firecrawl config.")
         yaml = YAML(typ='safe') # Targets YAML 1.2 strictly
-        with open(firecrawl_config_file, "r") as f:
+        with open(firecrawl_path, "r") as f:
             firecrawl_config = yaml.load(f).get('functions', None)
 
     if not (brave_config or firecrawl_config):
