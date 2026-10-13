@@ -215,12 +215,24 @@ async def inference(session_data, request: Request):
         prompt = data.get('prompt_str', None)
         image_file = data.get('image_file', None) # binary
         max_tokens = data.get('max_tokens', None) 
+        top_p = data.get('top_p', None)
+        top_k = data.get('top_k', None)
+        repetition_penalty = data.get('repetition_penalty', None)
+        presence_penalty = data.get('presence_penalty', None)
+        frequency_penalty = data.get('frequency_penalty', None)
+        remember = data.get('remember', False)
 
         model = request.app.state.llm_sessions[client_id]
         result = await model.inference(
-                image_path=image_file, 
-                prompt_str_=prompt,
-                max_tokens=int(max_tokens),
+                image_path = image_file, 
+                prompt_str_ = prompt,
+                max_tokens = int(max_tokens),
+                top_p = top_p,
+                top_k = top_k,
+                repetition_penalty = repetition_penalty,
+                presence_penalty = presence_penalty,
+                frequency_penalty = frequency_penalty,
+                remember = remember,
                 verbose=True,
             )
             

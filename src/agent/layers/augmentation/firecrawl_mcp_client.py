@@ -38,7 +38,7 @@ class Firecrawl_MCP_Client():
     def __init__(self, *, tool_config, container_url: str = f"{get_firecrawl_address()}/mcp"):
         self.client = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
         self.tool_config = tool_config
-        self.toolbox = None
+        self.toolbox = None  # Available tool metadata to pass to LLM 
         self.url = container_url
 
     async def response(self, payload, headers):
@@ -123,12 +123,14 @@ class Firecrawl_MCP_Client():
         return self.toolbox
 
     def parse_llm_response(self, llm_response: str):
-        # takes llm response, checks it for a tool call, and if present, runs the tool and presents the MCP response
+        # takes llm response, checks it for a tool call, and if present, runs the tool and presents the MCP response.
+        # Intended to be wrapped and called by bravemcp_client rather than called by llm
+        #   In this case, if a url is known, call query directly.
         response_data = json.loads(llm_response.read())
 
         choice = response_data["choices"][0]
         message = choice["message"]
-        
+        result_string = ""
         try:
             if "tool_calls" in message and message["tool_calls"]:
                 for tool_call in message["tool_calls"]:
@@ -195,7 +197,7 @@ class Firecrawl_MCP_Client():
         }
 
         web_scrape = await self.response(headers=headers_dict, payload=payload_dict)
-        print("\n--- Gathered Search Payload for vLLM Context ---")
+        print("\n--- Gathered Web Scraped Payload for vLLM Context ---")
 
         return web_scrape
         
@@ -225,7 +227,7 @@ async def main(config_dict: dict):
     found_tools = await client.show_tools()
     print(f"Using {len(found_tools)} tools.")
 
-    return search_results
+    return search_results if search_results else f"No Search results with \n{found_tools}\ntools."
 
 # Execute discovery
 if __name__ == "__main__":

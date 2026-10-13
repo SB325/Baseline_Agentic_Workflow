@@ -209,6 +209,11 @@ class UserSession:
             max_tokens: int = 256,
             remember: bool = False,
             tools: list = None,
+            top_p: float = 0.9,
+            top_k: int = 20,
+            repetition_penalty: float = 1.1,  # Value > 1.0: Discourages repetition
+            presence_penalty: float = 0.1,  # Value > 0.0: Encourages the model to talk about new topics.
+            frequency_penalty: float = 0.1,  # Value > 0.0: Increases the penalty each time a token is repeated
             verbose: bool = False):
         max_tokens = 64 if max_tokens < 64 else max_tokens
         print(f"Max Tokens: {max_tokens}")
@@ -409,9 +414,14 @@ async def main(
         else:      
             result = await ocrAI.inference(
                 image_path=image_file, 
-                prompt_str_=prompt_str,
-                max_tokens=int(max_tokens),
-                remember=conversate,
+                prompt_str_=prompt_str_,
+                max_tokens=int(max_tokens) or self.config.get('max_tokens', None),
+                top_p=top_p or self.config.get('top_p', None),
+                top_k=top_k or self.config.get('top_k', None),
+                repetition_penalty=repetition_penalty or self.config.get('repetition_penalty', None)
+                presence_penalty=presence_penalty or self.config.get('presence_penalty', None)
+                frequency_penalty=frequency_penalty or self.config.get('frequency_penalty', None)
+                remember=conversate or self.config.get('remember', None),
                 tools=tools,
                 verbose=False,
             )

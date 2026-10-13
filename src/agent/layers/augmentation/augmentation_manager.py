@@ -1,8 +1,9 @@
 import pdb
+import sys
 from pathlib import Path
-# parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent.parent.parent)
-# if parent_dir not in sys.path:
-    # sys.path.insert(0, parent_dir)
+parent_dir = str(Path(__file__).resolve().parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 from bravesearch_mcp_client import BraveMCPClient
 from schemas.bravesearch_schemas import TOOL_SCHEMAS
 from firecrawl_mcp_client import Firecrawl_MCP_Client
@@ -12,12 +13,10 @@ import os
 from ruamel.yaml import YAML
 
 class AugmentationManager():
-    def __init__(self, config):
-        self.brave_client = BraveMCPClient(tool_config=config)
-        self.firecrawl_client = Firecrawl_MCP_Client(tool_config=config)
-        print(f"Server alive before initialization? {self.brave_client.is_running}") # False
-        self.brave_config = config['brave_config']
-        self.firecrawl_config = config['firecrawl_config']
+    def __init__(self, *, tool_config):
+        self.brave_client = BraveMCPClient(tool_config=tool_config.get('brave_config', None))
+        self.firecrawl_client = Firecrawl_MCP_Client(tool_config=tool_config.get('firecrawl_config', None))
+        print(f"Server alive before initialization? {self.brave_client.is_running}")
         self.toolbox = None
 
     async def tool_connect(self):
@@ -26,7 +25,11 @@ class AugmentationManager():
 
         self.brave_toolbox = await self.brave_client.get_vllm_tools_schema()
         print(f"Successfully converted {len(self.brave_toolbox)} tools for llm.chat().")
-        
+            
+    async def tool_disconnect(self):
+        await self.brave_client.disconnect()
+        print(f"Server status post-teardown: {self.brave_client.is_running}") # False
+
     def show_tools(self):
         return self.brave_toolbox
 
@@ -39,6 +42,10 @@ class AugmentationManager():
         
         try:
             if "tool_calls" in message and message["tool_calls"]:
+                full_results = {
+                    'brave_results': [],
+                    'firecrawl_results': [],
+                }
                 for tool_call in message["tool_calls"]:
                     func_data = tool_call["function"]
                     function_name = func_data["name"]
@@ -57,15 +64,13 @@ class AugmentationManager():
                         # Parse raw string JSON safely
                         parsed_json = json.loads(raw_arguments_str)
                         
-                        # Enforce validation using Pydantic
+                        # Enforce argument json validation using Pydantic
                         validated_arguments = schema_cls(**parsed_json)
                         print("[VALIDATION PASSED] Tool call syntax and arguments conform fully to the JSON Schema!")
                         
                         brave_result = self.query(target_tool=function_name, search_args=parsed_json)
-                        full_results = {
-                            'brave_results': [],
-                            'full_results': [],
-                        }
+                        
+                        # for each url in brave_results, scrape contents
                         for result in brave_result:
                             full_results['brave_results'].append(result)
                             full_results['firecrawl_results'].append(
@@ -80,8 +85,8 @@ class AugmentationManager():
                                 )
                             )
                         
-                    except json.JSONDecodeError:
-                        print("[VALIDATION FAILED] Invalid JSON structure returned by vLLM.")
+                    except json.JSONDecodeError as e:
+                        print(f"[VALIDATION FAILED] Invalid JSON structure returned by vLLM.\n{e}")
                     except ValidationError as e:
                         print(f"[VALIDATION FAILED] Parameter data type mismatches or missing required keys:\n{e}")
             else:
@@ -93,10 +98,6 @@ class AugmentationManager():
         return full_results
 
     async def query(self, target_tool: str, search_args: dict):
-        # Typically you'd capture 'tool_call.function.name' and 'json.loads(tool_call.function.arguments)' from llm
-        # target_tool = "brave_web_search"
-        # search_args = {"query": "vLLM latest release news 2026"}
-        
         raw_web_context = await self.brave_client.execute_search(target_tool, search_args)
         print("\n--- Gathered Search Payload for vLLM Context ---")
         # print(raw_web_context[:300] + "...") # Preview output snippet
@@ -104,10 +105,6 @@ class AugmentationManager():
         # Parse url fields and get clean markdown of content from firecrawl API
 
         return raw_web_context
-            
-    async def tool_disconnect(self):
-        await self.brave_client.disconnect()
-        print(f"Server status post-teardown: {self.brave_client.is_running}") # False
 
     async def __aenter__(self):
         """Triggers automatically when entering the 'async with' block."""
@@ -141,9 +138,10 @@ async def main(config: dict):
     #   parameters from an online search.
     # ******************************************
 
-    async with AugmentationManager(config) as manager:
+    async with AugmentationManager(config=config) as manager:
         search_results = []
         tools = list(config['brave_config'].keys())
+        # Currently only using single brave tool
         for tool in tools:
             search_results.append(
                     await manager.query(
@@ -153,8 +151,10 @@ async def main(config: dict):
                 )
             )
 
-        print(f"Using {len(manager.show_tools())} tools.")
-    print(search_results)
+        found_tools = manager.show_tools()
+        print(f"Using {len(found_tools)} tools.")
+    
+    return search_results if search_results else f"No Search results with \n{found_tools}\ntools."
 
 if __name__ == "__main__":
     brave_config_file = "brave_config.yaml"
@@ -181,6 +181,8 @@ if __name__ == "__main__":
             "calls will be provided to the LLM, *severely* limiting " + \
             "the context window!\n\n")
 
-    anyio.run(main, {'brave_config': brave_config, 
+    results = anyio.run(main, {'brave_config': brave_config, 
             'firecrawl_config': firecrawl_config
             })
+    
+    print(results)

@@ -25,11 +25,12 @@ def get_bravesearch_address():
     return f'http://{ip}:{brave_search_port}'
 
 class BraveMCPClient:
-    def __init__(self, *, mode: str = "sse", 
+    def __init__(self, *, 
+        tool_config: dict,  # Required
+        mode: str = "sse", 
         address_or_cmd: str = f"{get_bravesearch_address()}/mcp", 
         args: Optional[List[str]] = None, 
         env: Optional[Dict[str, str]] = None,
-        tool_config: Optional[List[dict]] = {},
         ):
         """
         Args:
@@ -42,7 +43,8 @@ class BraveMCPClient:
         self.address_or_cmd = address_or_cmd
         self.args = args or []
         self.env = env or {}
-        self.tool_config = tool_config['brave_config']
+        self.toolbox = None  # Available tool metadata to pass to LLM
+        self.tool_config = tool_config
         # State tracking
         self.session: Optional[ClientSession] = None
         self._exit_stack = None
@@ -117,7 +119,7 @@ class BraveMCPClient:
         if self.tool_config:
             config_tools = list(self.tool_config.keys())
             # Downselect tools
-            toolbox = [v for v in vllm_tools if v['function']['name'] in config_tools]
+            toolbox = [v for v in vllm_tools if v.get('function',{}).get('name',{}) in config_tools]
             
             # Downselect search properties
             for tool in toolbox:

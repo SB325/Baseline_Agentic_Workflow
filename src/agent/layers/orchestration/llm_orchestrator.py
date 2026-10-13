@@ -1,7 +1,7 @@
 import os, sys
 import pdb
 from pathlib import Path
-parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent.parent)
+parent_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 import json
@@ -36,15 +36,19 @@ def get_vllm_ip():
     return f'http://{ip}:{vllm_port}'
 
 
-class LLMInference:
-    def __init__(self, 
-            vllm_address: str = get_vllm_ip(),
-            system_prompt: str = "You are a helpful assistant.",
-            client_id: str = None,  
-        ):
-        self.vllm_address = vllm_address
-        self.client_id = client_id
-        self.system_prompt = system_prompt
+class LLM:
+    def __init__(self, *, llm_config: dict):
+        self.configs = llm_config
+        self.vllm_address = self.configs.get('connection',{}).get('vllm_address', get_vllm_ip())
+        self.client_id = self.configs.get('connection',{}).get('client_id', None)
+        self.system_prompt = self.configs.get('connection',{}).get('system_prompt', None)
+        self.max_tokens = self.configs.get('inference',{}).get('max_tokens',None)
+        self.top_k = self.configs.get('inference',{}).get('top_k',None)
+        self.top_p = self.configs.get('inference',{}).get('top_p',None)
+        self.repetition_penalty = self.configs.get('inference',{}).get('repetition_penalty',None)
+        self.presence_penalty = self.configs.get('inference',{}).get('presence_penalty',None)
+        self.frequency_penalty = self.configs.get('inference',{}).get('frequency_penalty',None)
+        self.remember = self.configs.get('inference',{}).get('remember',None)
 
     async def check_vllm_availability(self):
         try:
@@ -141,10 +145,27 @@ class LLMInference:
         return {'status': status}
 
     async def inference(self, 
-            client_id: str = None,
-            prompt_str: str = None,
-            max_tokens: int = 256,
+            *,
+            client_id,
+            prompt_str,
+            max_tokens,
+            top_p,
+            top_k,
+            repetition_penalty,
+            presence_penalty,
+            frequency_penalty,
+            remember
         ):
+        # If values are presented as arguments to the inference call, those take precidence
+        # over yaml config values.
+        max_tokens = max_tokens or self.max_tokens
+        top_p = top_p or self.top_p
+        top_k = self.top_k or top_k
+        repetition_penalty = repetition_penalty or self.repetition_penalty
+        presence_penalty = presence_penalty or self.presence_penalty
+        frequency_penalty = requency_penalty or self.frequency_penalty
+        remember = remember or self.remember
+
         status = False
         if not self.check_vllm_availability:
             return {'status': status, 'output': "VLLM server Unavailable!"}
@@ -158,8 +179,14 @@ class LLMInference:
                 'client_id': client_id, 
                 'prompt_str': prompt_str,
                 'max_tokens': max_tokens,
-                }
-            )
+                'top_p': top_p,
+                'top_k': top_k,
+                'repetition_penalty': repetition_penalty,
+                'presence_penalty': presence_penalty,
+                'frequency_penalty': frequency_penalty,
+                'remember': remember 
+            }
+        )
         results = val.json()
         
         detail = None
@@ -176,7 +203,7 @@ class LLMInference:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-session", "--session_id", required=True, help="Session Identifier.")
+    parser.add_argument("-client", "--client_id", required=False, help="Session Identifier.")
     parser.add_argument("-s", "--system_prompt", help="System prompt for LLM session.")
     parser.add_argument("-t", "--max_tokens", help="Max tokens for LLM to respond with", type=int, default=8000)
     parser.add_argument("-c", "--conversate", action='store_true', help="Conversational interraction (remember history)")
@@ -188,12 +215,14 @@ if __name__ == "__main__":
     conversate = args.conversate
     system_prompt = args.system_prompt
     use_api = args.use_api
-    client_id = args.session_id
+    client_id = args.client_id
 
-    llm = LLMInference(
-            client_id = client_id,
-            system_prompt = system_prompt
-        )
+    llm = LLM(llm_config=
+        {
+            'client_id': client_id or "Test_ID",
+            'system_prompt': 'You are a helpful Assistant.'
+        }
+    )
     
     print(asyncio.run(llm.get_vram_status()))
     print(asyncio.run(llm.create_session()))

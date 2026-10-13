@@ -42,7 +42,7 @@
 # Downstream agent 5 (from agent 4): Provide a category that this proper noun fits in. 
 
 #################################################
-from nodes.llm_inference.subagent.orchestration import LLMInference
+from nodes.llm_orchestrator.subagent.orchestration import LLM
 from typing import Annotated, Literal, Union
 from typing_extensions import TypedDict
 from operator import add
@@ -55,7 +55,7 @@ import asyncio
 load_dotenv()
 # vllm_service_name = os.getenv("VLLM_SERVICE_NAME")
 
-llm = LLMInference()
+llm = LLM()
 
 class InputState(MessagesState):
     session_id: str

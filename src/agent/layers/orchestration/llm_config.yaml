@@ -1,0 +1,15 @@
+# This config specifies values used to configure the local vLLM inference
+#   engine under a given open weight model.
+llm:
+  connection:
+    vllm_address: None
+    client_id: None
+    system_prompt: None
+  inference:
+    max_tokens: 256
+    top_p: 0.9
+    top_k: 20
+    repetition_penalty: 1.1
+    presence_penalty: 0.1
+    frequency_penalty: 0.1
+    remember: False # Should always be false as orchestration layer won't be managing context
