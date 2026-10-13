@@ -1,5 +1,5 @@
 context:
   context:
-    context_window_limit: None
+    context_window_limit: 500
   sessions:
-    session_id_prefix: None
+    session_id_prefix: default_
