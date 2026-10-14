@@ -17,10 +17,12 @@ from orchestration.llm_orchestrator import LLM
 from memory.memory_manager import MemoryManager
 from augmentation.augmentation_manager import AugmentationManager
 from load_folder_yamls import load_folder_yamls, prune_to_matching_key
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 
 class GuardrailManager():
     def __init__(self, *, memory, toolset, guardrail_config):
         self.config = guardrail_config.get('policy', {}).get('policy_config_vals', None)
+        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
         self.memory = memory
         self.augmentation = toolset
         self.failure_flag = False

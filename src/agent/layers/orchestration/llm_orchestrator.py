@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import argparse
 import asyncio
 from util.requests_util import requests_util
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 import subprocess
 import ast
 
@@ -39,6 +40,7 @@ def get_vllm_ip():
 class LLM:
     def __init__(self, *, llm_config: dict):
         self.configs = llm_config
+        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
         self.vllm_address = self.configs.get('connection',{}).get('vllm_address', get_vllm_ip())
         self.client_id = self.configs.get('connection',{}).get('client_id', None)
         self.system_prompt = self.configs.get('connection',{}).get('system_prompt', None)

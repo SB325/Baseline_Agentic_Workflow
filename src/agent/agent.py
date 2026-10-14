@@ -16,7 +16,7 @@ from layers.memory.memory_manager import MemoryManager
 from layers.guardrails.policy_enforcement_manager import GuardrailManager
 from layers.augmentation.augmentation_manager import AugmentationManager
 from layers.evaluation.evaluation_manager import EvaluationManager
-from layers.observation.observability_manager import ObservabilityManager
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 
 from load_folder_yamls import load_folder_yamls, prune_to_matching_key
 
@@ -37,8 +37,6 @@ class BaseAgent:
         guardrails = GuardrailManager(memory=memory, toolset=augmentation, guardrail_config=agent_config.get('guardrails', {})) 
         # Evaluate LLM outputs for quality
         evaluation = EvaluationManager(eval_config=agent_config.get('evaluation', {}).get('path', {}))
-        # Observability traces, metrics, logs for agent
-        observability = ObservabilityManager(evals=evaluation, guardrails=guardrails, obs_config=agent_config.get('observation', {}).get('path', {}))
 
         # Agent Harness config
         self.config = agent_config.get('harness', {}).get('path', {})
@@ -65,10 +63,6 @@ if __name__ == "__main__":
             'guardrails': {
                 'path': 'layers/guardrails',
                 'key': 'policy'
-            },
-            'observation': {
-                'path': 'layers/observation',
-                'key': 'observation'
             },
             'agent': {
                 'path': '',

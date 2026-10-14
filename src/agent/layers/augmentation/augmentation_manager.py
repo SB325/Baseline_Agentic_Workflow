@@ -7,6 +7,7 @@ if parent_dir not in sys.path:
 from bravesearch_mcp_client import BraveMCPClient
 from schemas.bravesearch_schemas import TOOL_SCHEMAS
 from firecrawl_mcp_client import Firecrawl_MCP_Client
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 import anyio
 import json
 import os
@@ -14,6 +15,7 @@ from ruamel.yaml import YAML
 
 class AugmentationManager():
     def __init__(self, *, tool_config):
+        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
         self.brave_client = BraveMCPClient(tool_config=tool_config.get('brave_config', None))
         self.firecrawl_client = Firecrawl_MCP_Client(tool_config=tool_config.get('firecrawl_config', None))
         print(f"Server alive before initialization? {self.brave_client.is_running}")

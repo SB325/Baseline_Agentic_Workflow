@@ -18,6 +18,7 @@ import json
 import copy
 import codecs
 from schemas.firecrawl_schemas import TOOL_SCHEMAS
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 
 load_dotenv()
 firecrawl_service_name = os.getenv("FIRECRAWL_SERVICE_NAME")

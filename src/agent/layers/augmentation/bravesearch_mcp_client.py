@@ -2,6 +2,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client 
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 from typing import Dict, Any, Optional, List
 import subprocess
 from schemas.bravesearch_schemas import TOOL_SCHEMAS

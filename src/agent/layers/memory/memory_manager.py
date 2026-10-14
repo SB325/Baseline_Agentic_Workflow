@@ -14,6 +14,7 @@ parent_dir = str(Path(__file__).resolve().parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 from orchestration.llm_orchestrator import LLM
+from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 import asyncio
 import argparse
 
@@ -24,6 +25,7 @@ class MemoryManager:
         # config should be validated in the future
         self.llm = orchestrator
         self.token_count = 0
+        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
         
         context_config = memory_config.get('context', {}).get('context', {})
         # Default 5000 token limit per session
