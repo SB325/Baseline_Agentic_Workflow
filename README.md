@@ -26,3 +26,7 @@ layers.
 
 ### Demo Agent
 ![](images/toyagent.png)
+
+
+> [!NOTE]
+NVIDIA driver 580 won't install with the linux kernel version 7.0.0-28-generic 

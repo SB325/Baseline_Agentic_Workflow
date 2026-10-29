@@ -1,8 +1,9 @@
 import os, sys
 from pathlib import Path
-parent_dir = str( Path(__file__).resolve().parent )
+parent_dir = str( Path(__file__).resolve().parent.parent )
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+import pdb
 import uvicorn
 import asyncio
 from inference.image_txt_llm import get_vram_status, UserSession  # Multimodal LLM model
@@ -13,7 +14,6 @@ from contextlib import asynccontextmanager
 from functools import wraps
 from pydantic import BaseModel, Field
 import signal
-import pdb
 from io import BytesIO
 from dotenv import load_dotenv
 import json
@@ -123,6 +123,7 @@ async def session_lifespan(app: FastAPI):
 @clean_shutdown
 async def new_session(session_data, request):
     try:
+        print("***********##### CREATE NEW SESSION ######*************")
         data = json.loads(session_data)
         client_id = data.get('client_id')
         if not client_id:
@@ -253,8 +254,8 @@ async def get_gpu_status():
 ############ API ENDPOINTS ##################
 # Create FastAPI app with lifespan (required for session management)
 api = FastAPI(
-    lifespan=session_lifespan
-    # root_path=os.getenv("ROOT_VLLM_PROXY_PREFIX", "vllm")
+    lifespan=session_lifespan,
+    root_path=os.getenv("ROOT_VLLM_PROXY_PREFIX", "vllm")
 )
 
 @api.get("/api/status")
@@ -308,6 +309,6 @@ async def gpu_status():
         )
 
 if __name__ == "__main__":
-    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port, reload=True)
+    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port) #, reload=True)
 
     

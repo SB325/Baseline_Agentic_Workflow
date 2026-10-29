@@ -25,43 +25,51 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
-
+from opentelemetry.metrics import Observation, CallbackOptions
 from dotenv import load_dotenv
 from enum import Enum
 from uuid import uuid4
+# import inspect
 
 load_dotenv(override=True) 
 in_docker = os.getenv("INDOCKER")
-service_name = os.getenv("OTEL_SERVICE_NAME")
+# service_name = os.getenv("OTEL_SERVICE_NAME")
 otelcol_service_name = os.getenv("OTEL_SERVICE_NAME")
 
 def get_otel_ip():
-    if bool(in_docker):
-        return f'{otelcol_service_name}:4317'
 
     # Run a command and capture its stdout and stderr
     ip = subprocess.run(
-        f"docker inspect --format='{{.NetworkSettings.Networks.homeserver.IPAddress}}' {otelcol_service_name}",
+        [
+            "docker",
+            "inspect",
+            "-f",
+            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            otelcol_service_name,
+        ],
         capture_output=True,  # Capture stdout and stderr
         text=True,           # Decode output as text (UTF-8 by default)
-        shell=True           # Raise CalledProcessError if the command returns a non-zero exit code
-    ).stdout.replace('\n', '')
+        check=True           # Raise CalledProcessError if the command returns a non-zero exit code
+    ).stdout.strip() #('\n', '')
     return f'{ip}:4317'
 
 class otel_tracer():
-    # Configure the service name and other resource attributes
-    resourceAttributes = Resource(attributes={
-        "service.name": service_name,
-    })
-    # Set the global tracer provider
-    provider = TracerProvider(resource=resourceAttributes)
-    # Configure the OTLP exporter
-    otlp_exporter = OTLPSpanExporter(endpoint=f"{get_otel_ip()}", insecure=True) 
-    # Add a span processor to the provider
-    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-    trace.set_tracer_provider(provider)
-    # Acquire a tracer for use in your application
-    tracer = trace.get_tracer(__name__)
+    def __init__(self, service_name: str = 'default'):
+        self.service_name = service_name
+        # Configure the service name and other resource attributes
+        self.resourceAttributes = Resource(attributes={
+            "service.name": self.service_name,
+        })
+
+        # Set the global tracer provider
+        provider = TracerProvider(resource=self.resourceAttributes)
+        # Configure the OTLP exporter
+        otlp_exporter = OTLPSpanExporter(endpoint=f"{get_otel_ip()}", insecure=True) 
+        # Add a span processor to the provider
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        trace.set_tracer_provider(provider)
+        # Acquire a tracer for use in your application
+        self.tracer = trace.get_tracer(__name__)
 
     def set_span(self, span_name: str):
         print(f"Tracing span: {span_name}.")
@@ -85,6 +93,9 @@ meter_provider = MeterProvider(metric_readers=[metric_reader])
 # Sets the global default meter provider
 metrics.set_meter_provider(meter_provider)
 class otel_metrics():
+    def __init__(self, meter_prefix: str = 'default'):
+        self.meter_prefix = meter_prefix
+
     meter_objects = {
                 'counters': [], 
                 'upDownCounters': [], 
@@ -92,12 +103,19 @@ class otel_metrics():
                 'histograms': [],
             }
     
+    def callback_passthrough(self, funct, options: CallbackOptions):
+        val_out = funct
+        yield Observation(default_val_out)  
+
     def create_meter(self, 
             meter_name : str, 
-            callbacks: None,
+            callback_function_int: None, # function returning int or float
             meter_type: meterType,
             description: str,
             ):
+        meter = self.meter_prefix +  '.' + meter_name
+        callbacks = self.callback_passthrough(callback_function_int) if callback_function_int else None
+
         # 2. Acquire a meter
         # A meter is associated with a specific name (e.g., application/library name) and version.
         meter = metrics.get_meter(name=meter_name, version="1.39.1")
@@ -161,12 +179,12 @@ class otel_metrics():
         # pdb.set_trace()
         upDownCounter[0].add(change_by, attributes)
 
-    def update_gauge(self,):
-        gauge = [val for val in self.meter_objects['gauges']
-                if counter_name in val.name]
+    # def update_gauge(self,):
+    #     gauge = [val for val in self.meter_objects['gauges']
+    #             if counter_name in val.name]
     
-        if not gauge:
-            print(f"Gauge name {counter_name} not found.")
+    #     if not gauge:
+    #         print(f"Gauge name {counter_name} not found.")
 
     def update_histogram(self, counter_name, ammount: int, attributes: dict=None, context=None):
         histogram = [val for val in self.meter_objects['histograms']
@@ -179,21 +197,24 @@ class otel_metrics():
 
 # =======================================================================
 class otel_logger():
-    resource = Resource.create({ "service.instance.id": 'market_reader'})
-    # 2. Configure the Logger Provider
-    logger_provider = LoggerProvider(resource=resource)
-    set_logger_provider(logger_provider)
-    # 3. Configure the exporter (e.g., OTLP to a collector running on localhost:4317)
-    # Use insecure=True if your collector does not have TLS configured
-    log_exporter = OTLPLogExporter(endpoint=f"{get_otel_ip()}", insecure=True)
-    # 4. Add a processor to the provider
-    logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
-    # 5. Attach OTLP handler to the Python standard logging
-    handler = LoggingHandler(level=logging.DEBUG, logger_provider=logger_provider)
-    logging.getLogger().setLevel(logging.DEBUG) # Ensure all levels are captured
-    logging.getLogger().addHandler(handler)
-    # 6. Use standard Python logging
-    logger = logging.getLogger(__name__)
+    def __init__(self, instance_id: str = 'default'):
+        self.instance_id = instance_id
+
+        resource = Resource.create({ "service.instance.id": self.instance_id})
+        # 2. Configure the Logger Provider
+        logger_provider = LoggerProvider(resource=resource)
+        set_logger_provider(logger_provider)
+        # 3. Configure the exporter (e.g., OTLP to a collector running on localhost:4317)
+        # Use insecure=True if your collector does not have TLS configured
+        log_exporter = OTLPLogExporter(endpoint=f"{get_otel_ip()}", insecure=True)
+        # 4. Add a processor to the provider
+        logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+        # 5. Attach OTLP handler to the Python standard logging
+        handler = LoggingHandler(level=logging.DEBUG, logger_provider=logger_provider)
+        logging.getLogger().setLevel(logging.DEBUG) # Ensure all levels are captured
+        logging.getLogger().addHandler(handler)
+        # 6. Use standard Python logging
+        self.logger = logging.getLogger(__name__)
 
     def info(self, msg):
         self.logger.info(msg)
@@ -205,7 +226,11 @@ class otel_logger():
         self.logger.warning(msg)
     
     def error(self, msg):
-        self.logger.error(msg)
+        frame = sys._getframe(1)
+        func_name = frame.f_code.co_name
+        filename = frame.f_code.co_filename
+        new_msg = f"Exception at function {func_name} in {filename}:\n{msg}"
+        self.logger.error(new_msg)
 
     def critical(self, msg):
         self.logger.critical(msg, exc_info=True)

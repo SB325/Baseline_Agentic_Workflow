@@ -2,6 +2,7 @@ services:
   vllm:
     env_file:
       - ./src/.env
+    shm_size: '6gb'  # Give vLLM enough shared memory for multiprocessing IPC
     build:
       context: ./src
       args:
@@ -12,7 +13,8 @@ services:
         - MAX_VLLM_CLIENTS=3
         - VLLM_PORT=${VLLM_PORT}
         - no_cache
-    restart: unless-stopped
+    # image: vllm-openai:qwen
+    # restart: unless-stopped
     volumes:
         # - ./logs:/root/logs
         - ${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1:${LLM_STORAGE_ROOT}Qwen/Qwen2.5-VL-3B-Instruct/1

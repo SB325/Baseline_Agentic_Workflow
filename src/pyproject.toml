@@ -1,14 +1,15 @@
 [project]
-name = "server"
+name = "src"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
-    "argparse==1.4.0",
-    "fastapi[all]>=0.135.1",
+    "fastapi[all]>=0.159.0",
     "fastmcp==0.4.1",
     "mcp>=1.26.0",
     "numpy==2.2.6",
-    "nvidia-ml-py>=13.590.48",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.45.1",
+    "opentelemetry-instrumentation-system-metrics>=0.66b1",
+    "opentelemetry-sdk>=1.45.1",
     "pdf2image==1.17.0",
     "pillow>=10.4.0",
     "pydantic==2.12.0",

@@ -8,7 +8,8 @@
 import sys
 from pathlib import Path
 utils_dir = Path(__file__).resolve()
-sys.path.append(str(utils_dir))
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
 import json
 import pdb
 from layers.orchestration.llm_orchestrator import LLM

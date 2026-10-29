@@ -418,9 +418,9 @@ async def main(
                 max_tokens=int(max_tokens) or self.config.get('max_tokens', None),
                 top_p=top_p or self.config.get('top_p', None),
                 top_k=top_k or self.config.get('top_k', None),
-                repetition_penalty=repetition_penalty or self.config.get('repetition_penalty', None)
-                presence_penalty=presence_penalty or self.config.get('presence_penalty', None)
-                frequency_penalty=frequency_penalty or self.config.get('frequency_penalty', None)
+                repetition_penalty=repetition_penalty or self.config.get('repetition_penalty', None),
+                presence_penalty=presence_penalty or self.config.get('presence_penalty', None),
+                frequency_penalty=frequency_penalty or self.config.get('frequency_penalty', None),
                 remember=conversate or self.config.get('remember', None),
                 tools=tools,
                 verbose=False,
