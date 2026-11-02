@@ -12,6 +12,7 @@ from util.requests_util import requests_util
 from agent.layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 import subprocess
 import ast
+import re
 
 load_dotenv()
 LLM_DIR = os.getenv("LLM_IMAGE_MODEL_NT_STORAGE")
@@ -38,12 +39,15 @@ class LLM:
             self.presence_penalty = self.configs.get('inference',{}).get('presence_penalty',None)
             self.frequency_penalty = self.configs.get('inference',{}).get('frequency_penalty',None)
             self.remember = self.configs.get('inference',{}).get('remember',None)
-            self.observation = {'traces': otel_tracer(self.client_id), 'metrics': otel_metrics(self.client_id), 'logs': otel_logger(self.client_id)}
+            self.observation = {
+                'traces': otel_tracer(service_name=self.client_id), 
+                'metrics': otel_metrics(meter_prefix=self.client_id), 
+                'logs': otel_logger(instance_id=self.client_id)
+            }
             self.observation['logs'].info(f"Initiated LLM Orchestrator for ID: ({self.client_id})")
-            self.observation['metrics'].create_meter(meter_name='vram', meter_type="ObservableGauge", callback=self.get_vram_status, description='VRAM Utilized.')
-            pdb.set_trace()
-        except:
-            self.observation['logs'].exception(f"FAILED to Initiate LLM Orchestrator Class for ID: ({self.client_id})")
+            self.observation['metrics'].create_meter(meter_name='vram', meter_type="ObservableGauge", callback_function_int=self.get_vram_status, description='VRAM Utilized.')
+        except Exception as e:
+            self.observation['logs'].exception(f"FAILED to Initiate LLM Orchestrator Class for ID: ({self.client_id})\n{e}")
 
     def get_vllm_ip(self):
         try:
@@ -65,7 +69,7 @@ class LLM:
             return f'http://{ip}:{vllm_port}'
 
         except Exception as e:
-            self.observation['logs'].error(e)
+            self.observation['logs'].error(f"Failed to get vLLM IP address:\n{e}")
 
     async def check_vllm_availability(self):
         try:
@@ -78,7 +82,7 @@ class LLM:
                 # print('VLLM Server Unavailable')
                 return False
         except Exception as e:
-            self.observation['logs'].error(e)
+            self.observation['logs'].error(f"Failure to assess vLLM availability.\n{e}")
         return True
 
     async def get_vram_status(self):
@@ -91,13 +95,19 @@ class LLM:
                 url_in = self.vllm_address + f'/api/get_gpu_status',
                 )
             results = val.json()
-
+            
             if val.ok:
                 status = True
+            match = re.search(r"\(([\d.]+)GB free\)", results['data']['result'])
+            val_out = 0
+            if match:
+                val_out = float(match.group(1))
 
-            return json.dumps({'status': status, 'output': results['data']['result']})
+            # return json.dumps({'status': status, 'output': results['data']['result']})
+            return val_out
+
         except Exception as e:
-            self.observation['logs'].error(e)
+            self.observation['logs'].error(f"Failed to get vram_status:\n{e}")
 
     async def create_session(self,
             client_id: str = None,
@@ -130,7 +140,7 @@ class LLM:
 
             return {'status': results['status'], 'output': results['message']}
         except Exception as e:
-            self.observation['logs'].error(e)
+            self.observation['logs'].error(f"Failed to create session -{client_id}-:\n{e}")
 
     async def delete_session(self,
             client_id: str = None,
@@ -169,24 +179,24 @@ class LLM:
     async def inference(self, 
             *,
             client_id,
-            prompt_str,
-            max_tokens,
-            top_p,
-            top_k,
-            repetition_penalty,
-            presence_penalty,
-            frequency_penalty,
-            remember
+            prompt_string,
+            max_tokens=None,
+            top_p=None,
+            top_k=None,
+            repetition_penalty=None,
+            presence_penalty=None,
+            frequency_penalty=None,
+            remember=None
         ):
         try:
             # If values are presented as arguments to the inference call, those take precidence
             # over yaml config values.
             max_tokens = max_tokens or self.max_tokens
             top_p = top_p or self.top_p
-            top_k = self.top_k or top_k
+            top_k = top_k or self.top_k 
             repetition_penalty = repetition_penalty or self.repetition_penalty
             presence_penalty = presence_penalty or self.presence_penalty
-            frequency_penalty = requency_penalty or self.frequency_penalty
+            frequency_penalty = frequency_penalty or self.frequency_penalty
             remember = remember or self.remember
 
             status = False
@@ -194,37 +204,46 @@ class LLM:
                 return {'status': status, 'output': "VLLM server Unavailable!"}
 
             assert client_id, "There must be a client_id"
-            assert prompt_str, "There must be a prompt_str"
+            assert prompt_string, "There must be a prompt_str"
 
-            val = requests.post(
-                url_in = self.vllm_address + f'/api/inference_on_session',
-                json_in = {
-                    'client_id': client_id, 
-                    'prompt_str': prompt_str,
-                    'max_tokens': max_tokens,
-                    'top_p': top_p,
-                    'top_k': top_k,
-                    'repetition_penalty': repetition_penalty,
-                    'presence_penalty': presence_penalty,
-                    'frequency_penalty': frequency_penalty,
-                    'remember': remember 
-                }
-            )
-            results = val.json()
-            
-            detail = None
-            if results.get('detail', None):
-                detail = ast.literal_eval(results['detail'])
-                if detail.get('status_code', None):
-                    status_code = detail['status_code']
-                    detail = detail['detail']
+            with self.observation['traces'].set_span('orchestrator.inference'):
+                self.observation['logs'].info(f'Prompt: {prompt_string}')
+                val = requests.post(
+                    url_in = self.vllm_address + f'/api/inference_on_session',
+                    json_in = {
+                        'client_id': client_id, 
+                        'prompt_string': prompt_string,
+                        'max_tokens': max_tokens,
+                        'top_p': top_p,
+                        'top_k': top_k,
+                        'repetition_penalty': repetition_penalty,
+                        'presence_penalty': presence_penalty,
+                        'frequency_penalty': frequency_penalty,
+                        'remember': remember 
+                    }
+                )
+                
+                results = val.json()
+                status_code = None
+                detail = None
+                if results.get('detail', None):
+                    detail = ast.literal_eval(results['detail'])
+                    if detail.get('status_code', None):
+                        status_code = detail['status_code']
+                        self.observation['logs'].info(f'Inference completed with status {status_code}')    
+                        detail = detail['detail']
+                        self.observation['logs'].info(f'Detail: {detail}')
 
-            if not val.ok:
-                return {'status': status_code, 'output': results['detail']}
-
-            return {'status': results['status'], 'output': results['data']['result']['output']}
+                if not val.ok:
+                    self.observation['logs'].info(
+                        f"Inference POST request failed: {val.status_code}: {val.reason}")
+                    return {'status': status_code, 'output': results['detail']}
+                
+                self.observation['logs'].info(
+                    f"Output: {results['data']['result']['output']} or 'Empty'")
+                return {'status': results['status'], 'output': results['data']['result']['output']}
         except Exception as e:
-            self.observation['logs'].error(e)
+            self.observation['logs'].error(f"Inference failed:\n{e}")
             
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -271,10 +290,9 @@ if __name__ == "__main__":
         output = asyncio.run(
             llm.inference(
                 client_id = client_id,
-                prompt_str = prompt
+                prompt_string = prompt
             )
         )
         print(output)
-
     asyncio.run(llm.delete_session(client_id))
         

@@ -204,8 +204,8 @@ class UserSession:
         self.history.append(templated_response)
 
     async def inference(self, 
-            image_path: str,
-            prompt_str_: str,
+            prompt_string: str,
+            image_path: str = None,
             max_tokens: int = 256,
             remember: bool = False,
             tools: list = None,
@@ -229,11 +229,11 @@ class UserSession:
                 },
                 {
                     "type": "text", 
-                    "text": prompt_str_,
+                    "text": prompt_string,
                 },
             ]
         else:
-            prompt['content'] = prompt_str_
+            prompt['content'] = prompt_string
 
         # vLLM needs a unique ID for every single request
         # We combine client_id + a request hash to keep them distinct
@@ -248,6 +248,7 @@ class UserSession:
 
         # Appending history provides memory to the LLM, however this is the beginnning
         #  of the memory management harness.
+
         full_context = self.query_memory(prompt_str)
         sampling_params = SamplingParams(
             temperature=0.8, 
@@ -414,7 +415,7 @@ async def main(
         else:      
             result = await ocrAI.inference(
                 image_path=image_file, 
-                prompt_str_=prompt_str_,
+                prompt_string=prompt_str_,
                 max_tokens=int(max_tokens) or self.config.get('max_tokens', None),
                 top_p=top_p or self.config.get('top_p', None),
                 top_k=top_k or self.config.get('top_k', None),

@@ -2,7 +2,7 @@ from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrument
 SystemMetricsInstrumentor().instrument() # Automatically collects CPU, memory, etc.
 
 import time
-import os   
+import os, sys   
 import pdb
 import subprocess
 # Traces
@@ -29,6 +29,7 @@ from opentelemetry.metrics import Observation, CallbackOptions
 from dotenv import load_dotenv
 from enum import Enum
 from uuid import uuid4
+import functools
 # import inspect
 
 load_dotenv(override=True) 
@@ -60,17 +61,20 @@ class otel_tracer():
         self.resourceAttributes = Resource(attributes={
             "service.name": self.service_name,
         })
-
-        # Set the global tracer provider
-        provider = TracerProvider(resource=self.resourceAttributes)
-        # Configure the OTLP exporter
-        otlp_exporter = OTLPSpanExporter(endpoint=f"{get_otel_ip()}", insecure=True) 
-        # Add a span processor to the provider
-        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        trace.set_tracer_provider(provider)
-        # Acquire a tracer for use in your application
-        self.tracer = trace.get_tracer(__name__)
-
+        try:
+            # Set the global tracer provider
+            provider = TracerProvider(resource=self.resourceAttributes)
+            # Configure the OTLP exporter
+            otlp_exporter = OTLPSpanExporter(endpoint=f"{get_otel_ip()}", insecure=True) 
+            # Add a span processor to the provider
+            provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+            trace.set_tracer_provider(provider)
+            # Acquire a tracer for use in your application
+            self.tracer = trace.get_tracer(__name__)
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
+            
     def set_span(self, span_name: str):
         print(f"Tracing span: {span_name}.")
         return self.tracer.start_as_current_span(span_name)
@@ -95,105 +99,133 @@ metrics.set_meter_provider(meter_provider)
 class otel_metrics():
     def __init__(self, meter_prefix: str = 'default'):
         self.meter_prefix = meter_prefix
-
-    meter_objects = {
-                'counters': [], 
-                'upDownCounters': [], 
-                'observableGauges': [],
-                'histograms': [],
-            }
+        # pdb.set_trace()
     
-    def callback_passthrough(self, funct, options: CallbackOptions):
-        val_out = funct
-        yield Observation(default_val_out)  
+    def callback_passthrough(self, options: CallbackOptions, funct):
+        val_out = funct()
+        yield Observation(val_out)  
 
     def create_meter(self, 
             meter_name : str, 
             callback_function_int: None, # function returning int or float
             meter_type: meterType,
             description: str,
-            ):
-        meter = self.meter_prefix +  '.' + meter_name
-        callbacks = self.callback_passthrough(callback_function_int) if callback_function_int else None
-
-        # 2. Acquire a meter
-        # A meter is associated with a specific name (e.g., application/library name) and version.
-        meter = metrics.get_meter(name=meter_name, version="1.39.1")
+        ):
+        self.meter_objects = {
+            'counters': [], 
+            'upDownCounters': [], 
+            'observableGauges': [],
+            'histograms': [],
+        }
+        try:
+            meter_name = self.meter_prefix +  '.' + meter_name
+            # pdb.set_trace()
+            callback = functools.partial(self.callback_passthrough, funct=callback_function_int)
+            # callbacks = self.callback_passthrough(options=, funct=callback_function_int) if callback_function_int else None
+            callback = [callback] if callback_function_int else None
+            # 2. Acquire a meter
+            # A meter is associated with a specific name (e.g., application/library name) and version.
+            meter = metrics.get_meter(name=meter_name, version="1.39.1")
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(f"Failed to acquire a Meter.\n{e}")
 
         try:
             meterType(meter_type)
-        except ValueError as e:
-            print(f"Invalid meter name: {e}")
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(f"Invalid Meter Name: {meter_type}\n{e}")
 
-        if meter_type == meterType.counter.value:
-            # 3. Create a synchronous instrument (Counter)
-            # Counters are used for values that only increase, like the number of requests or errors.
-            self.meter_objects['counters'].append(
-                meter.create_counter(
-                    meter_name,  # ex: "http.server.requests.total",
-                    unit="1",
-                    description=description,
+        try:
+            if meter_type == meterType.counter.value:
+                # 3. Create a synchronous instrument (Counter)
+                # Counters are used for values that only increase, like the number of requests or errors.
+                self.meter_objects['counters'].append(
+                    meter.create_counter(
+                        meter_name,  # ex: "http.server.requests.total",
+                        unit="1",
+                        description=description,
+                    )
                 )
-            )
-        if meter_type == meterType.upDownCounter.value:
-            self.meter_objects['upDownCounters'].append(
-                meter.create_up_down_counter(
-                    meter_name,  # ex: "http.server.requests.total",
-                    unit="1",
-                    description=description,
+            if meter_type == meterType.upDownCounter.value:
+                self.meter_objects['upDownCounters'].append(
+                    meter.create_up_down_counter(
+                        meter_name,  # ex: "http.server.requests.total",
+                        unit="1",
+                        description=description,
+                    )
                 )
-            )
-            
-        if meter_type == meterType.gauge.value:
-            self.meter_objects['observableGauges'].append(
-                meter.create_observable_gauge(
-                    meter_name,  # ex: "http.server.requests.total",
-                    [callbacks],
-                    unit="1",
-                    description=description,
+                
+                if meter_type == meterType.gauge.value:
+                    self.meter_objects['observableGauges'].append(
+                        meter.create_observable_gauge(
+                            name=meter_name,  # ex: "http.server.requests.total",
+                            callbacks=callback,
+                            unit="1",
+                            description=description,
+                        )
+                    )
+
+            if meter_type == meterType.histogram.value:
+                self.meter_objects['histograms'].append(
+                    meter.create_histogram(
+                        meter_name,  # ex: "http.server.requests.total",
+                        unit="1",
+                        description=description,
+                    )
                 )
-            )
-        if meter_type == meterType.histogram.value:
-            self.meter_objects['histograms'].append(
-                meter.create_histogram(
-                    meter_name,  # ex: "http.server.requests.total",
-                    unit="1",
-                    description=description,
-                )
-            )
-    
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
+
     def update_counter(self, counter_name, increase_by: int = 1, attributes: dict = None):
-        counter = [val for val in self.meter_objects['counters']
-                if counter_name in val.name]
-        if not counter:
-            print(f"Counter name {counter_name} not found.")
+        try:
+            counter = [val for val in self.meter_objects['counters']
+                    if counter_name in val.name]
+            if not counter:
+                print(f"Counter name {counter_name} not found.")
 
-        counter[0].add(increase_by, attributes)
+            counter[0].add(increase_by, attributes)
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
 
     def update_up_down_counter(self, counter_name, change_by: int = 1, attributes: dict = None):
-        upDownCounter = [val for val in self.meter_objects['upDownCounters']
+        try:
+            upDownCounter = [val for val in self.meter_objects['upDownCounters']
                 if counter_name in val.name]
 
-        if not upDownCounter:
-            print(f"UpDownCounter name {counter_name} not found.")
-        # pdb.set_trace()
-        upDownCounter[0].add(change_by, attributes)
+            if not upDownCounter:
+                print(f"UpDownCounter name {counter_name} not found.")
+            # pdb.set_trace()
+            upDownCounter[0].add(change_by, attributes)
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
 
-    # def update_gauge(self,):
-    #     gauge = [val for val in self.meter_objects['gauges']
-    #             if counter_name in val.name]
-    
-    #     if not gauge:
-    #         print(f"Gauge name {counter_name} not found.")
+    def update_gauge(self):
+        try:
+            gauge = [val for val in self.meter_objects['observableGauges']
+                    if counter_name in val.name]
+        
+            if not gauge:
+                print(f"Gauge name {counter_name} not found.")
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
 
     def update_histogram(self, counter_name, ammount: int, attributes: dict=None, context=None):
-        histogram = [val for val in self.meter_objects['histograms']
+        try:
+            histogram = [val for val in self.meter_objects['histograms']
                 if counter_name in val.name]
         
-        if not histogram:
-            print(f"Histogram name {counter_name} not found.")
-        
-        histogram[0].record(ammount, attributes, context)
+            if not histogram:
+                print(f"Histogram name {counter_name} not found.")
+            
+            histogram[0].record(ammount, attributes, context)
+        except Exception as e:
+            logs = otel_logger()
+            logs.error(e)
 
 # =======================================================================
 class otel_logger():
@@ -229,15 +261,20 @@ class otel_logger():
         frame = sys._getframe(1)
         func_name = frame.f_code.co_name
         filename = frame.f_code.co_filename
-        new_msg = f"Exception at function {func_name} in {filename}:\n{msg}"
+        lineno = frame.f_lineno
+        new_msg = f"Error at function {func_name} in {filename}:{lineno}\n{msg}"
         self.logger.error(new_msg)
 
     def critical(self, msg):
         self.logger.critical(msg, exc_info=True)
     
     def exception(self, msg):
-        self.logger.exception(msg)
-
+        frame = sys._getframe(1)
+        func_name = frame.f_code.co_name
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        new_msg = f"Exception at function {func_name} in {filename}:{lineno}\n{msg}"
+        self.logger.error(new_msg)
 
 if __name__ == "__main__":
     metric = otel_metrics()

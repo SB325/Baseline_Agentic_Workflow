@@ -17,6 +17,8 @@ import signal
 from io import BytesIO
 from dotenv import load_dotenv
 import json
+import logging
+import inspect
 
 load_dotenv()
 MAX_CLIENTS = int(os.getenv("MAX_VLLM_CLIENTS"))
@@ -118,6 +120,21 @@ async def session_lifespan(app: FastAPI):
     #     await session.close()
     app.state.llm_sessions.clear()
 
+############ API ENDPOINTS ##################
+# Create FastAPI app with lifespan (required for session management)
+logger = logging.getLogger(__name__)
+api = FastAPI(
+    lifespan=session_lifespan,
+    root_path=os.getenv("ROOT_VLLM_PROXY_PREFIX", "vllm")
+)
+
+@api.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.error(
+        f"HTTP error {exc.status_code} at {request.url.path}: {exc.detail}"
+    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
 #### Core functions ####
 # Create inference client session defined by 'client_id'
 @clean_shutdown
@@ -212,31 +229,18 @@ async def inference(session_data, request: Request):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Session '{client_id}' does not exist."
             )
-
-        prompt = data.get('prompt_str', None)
-        image_file = data.get('image_file', None) # binary
-        max_tokens = data.get('max_tokens', None) 
-        top_p = data.get('top_p', None)
-        top_k = data.get('top_k', None)
-        repetition_penalty = data.get('repetition_penalty', None)
-        presence_penalty = data.get('presence_penalty', None)
-        frequency_penalty = data.get('frequency_penalty', None)
-        remember = data.get('remember', False)
-
+        
         model = request.app.state.llm_sessions[client_id]
+        sig = inspect.signature(model.inference)
+        valid_params = sig.parameters.keys()
+        cleaned_args = {
+            k: v for k, v in data.items() if k in valid_params and v is not None
+        }
         result = await model.inference(
-                image_path = image_file, 
-                prompt_str_ = prompt,
-                max_tokens = int(max_tokens),
-                top_p = top_p,
-                top_k = top_k,
-                repetition_penalty = repetition_penalty,
-                presence_penalty = presence_penalty,
-                frequency_penalty = frequency_penalty,
-                remember = remember,
-                verbose=True,
-            )
-            
+            **cleaned_args
+        )
+
+        print(f"Status: {result.get('status', None)}\nOutput: {result.get('output')}")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"status": "success", "data": {"result": result}}
@@ -244,19 +248,13 @@ async def inference(session_data, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e.__dict__)}"
+            detail=f"{str(e)}"
         )
 
 @clean_shutdown_small
 async def get_gpu_status():
     return get_vram_status()
 
-############ API ENDPOINTS ##################
-# Create FastAPI app with lifespan (required for session management)
-api = FastAPI(
-    lifespan=session_lifespan,
-    root_path=os.getenv("ROOT_VLLM_PROXY_PREFIX", "vllm")
-)
 
 @api.get("/api/status")
 async def get_status():
@@ -280,24 +278,33 @@ class delSessionModel(BaseModel):
 
 class inferenceSessionModel(BaseModel):
     client_id: str
-    prompt_str: str
+    prompt_string: str
     image_file: str | None = None
-    max_tokens: int
+    max_tokens: int | None = None
 
 @api.post("/api/create_session")
 async def create_session(session_data: sessionModel, request: Request = None):
-    data = session_data.model_dump_json()
+    try:
+        data = session_data.model_dump_json()
+    except Exception as e:
+        print(f"Create Session endpoint payload is invalid:\n{e}")
     return await new_session(data, request)
 
 
 @api.post("/api/delete_session")
 async def delete_session(session_data: delSessionModel, request: Request):
-    data = session_data.model_dump_json()
+    try:
+        data = session_data.model_dump_json()
+    except Exception as e:
+        print(f"Delete Session endpoint payload is invalid:\n{e}")
     return await remove_session(data, request)
 
 @api.post("/api/inference_on_session")
 async def inference_on_session(session_data: inferenceSessionModel, request: Request):
-    data = session_data.model_dump_json()
+    try:
+        data = session_data.model_dump_json()
+    except Exception as e:
+        print(f"Inference endpoint payload is invalid:\n{e}")
     return await inference(data, request) 
 
 @api.get("/api/get_gpu_status")
@@ -309,6 +316,6 @@ async def gpu_status():
         )
 
 if __name__ == "__main__":
-    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port) #, reload=True)
+    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port, log_level="debug") #, reload=True)
 
     

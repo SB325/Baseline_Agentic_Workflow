@@ -21,7 +21,7 @@ import argparse
 import asyncio
 
 class MemoryManager:
-    def __init__(self, *, orchestrator, memory_config):
+    def __init__(self, *, orchestrator, memory_config={}):
         # config should be validated in the future
         self.llm = orchestrator
         self.token_count = 0
@@ -32,51 +32,64 @@ class MemoryManager:
         self.context_window_token_limit = 5000 or \
             context_config.get('context_window_limit', None)
 
-    async def create_session(self, session_id):
-        result = await self.llm.create_session(self.llm.vllm_client_id)
+    async def create_session(self, *, client_id):
+        self.llm.client_id = client_id
+        result = await self.llm.create_session(self.llm.client_id)
         return result
 
     async def inference(self, prompt: str, verbose: bool = False):
         if not await self.check_against_token_limit(prompt, verbose):
             return None
-
-        output = await self.llm.inference(
-                client_id = self.llm.vllm_client_id,
-                prompt_str = prompt,
-            )
+        
+        with self.observation['traces'].set_span('memory.inference'):
+            # self.observation['logs'].info(f'Prompt: {prompt}')
+            output = await self.llm.inference(
+                    client_id = self.llm.client_id,
+                    prompt_string = prompt,
+                )
+            # self.observation['logs'].info(f"memory Output: {output or 'Empty'}")
+        # pdb.set_trace()
 
         return output
 
     async def check_against_token_limit(self, string: str, verbose: bool = False):
         self.token_count += len(string.split(' '))
-        print(f"VRAM Status: {await self.llm.get_vram_status()}") if verbose else None
+        self.observation['logs'].info(f"VRAM Status: {await self.llm.get_vram_status()}") if verbose else None
         return False if self.token_count > self.context_window_token_limit else True
         
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.llm.delete_session(self.llm.vllm_client_id)
+        await self.llm.delete_session(self.llm.client_id)
     
 async def main(
     system_prompt: str , 
-    vllm_client_id: str = 'Test_ID', 
+    client_id: str = 'Test_ID', 
     verbose: bool = True
 ):
     async with MemoryManager(
-        llm=LLM(client_id=vllm_client_id,
-            system_prompt=system_prompt,
-            )
+        orchestrator=LLM(
+            llm_config={
+                'connection': {
+                    'client_id': client_id, 
+                    'system_prompt': system_prompt
+                }
+            },
+        )
     ) as mm:
-        
-        await mm.create_session(vllm_client_id)
 
-        result = await mm.inference(
-                prompt = prompt,
-                verbose = verbose,
-            )
+        await mm.create_session(client_id=client_id)
 
-        return result['output']
+        # result = await mm.inference(
+        #         prompt = prompt,
+        #         verbose = verbose,
+        #     )
+        result = await mm.llm.get_vram_status()
+
+        if not result:
+            return 'Empty'
+        return result
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -93,12 +106,13 @@ if __name__ == "__main__":
     verbose = args.verbose
 
     prompt = "What does Mr. Brown like to eat for breakfast?"
-
+    # pdb.set_trace()
     output = asyncio.run(
         main(
-            vllm_client_id = session_id,
+            client_id = session_id,
             system_prompt = system_prompt,
         )
     )
     print(output)
+    pdb.set_trace()
     
