@@ -2,7 +2,6 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client 
-from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 from typing import Dict, Any, Optional, List
 import subprocess
 from schemas.bravesearch_schemas import TOOL_SCHEMAS
@@ -45,7 +44,7 @@ class BraveMCPClient:
         self.args = args or []
         self.env = env or {}
         self.toolbox = None  # Available tool metadata to pass to LLM
-        self.tool_config = tool_config
+        self.tool_config = tool_config.get('functions',{})
         # State tracking
         self.session: Optional[ClientSession] = None
         self._exit_stack = None
@@ -79,7 +78,6 @@ class BraveMCPClient:
         self.session = ClientSession(read_stream, write_stream)
         await self.session.__aenter__()
         await self.session.initialize()
-        
         self.is_running = True
         print(f"[MCP] Client successfully connected via {self.mode.upper()}. Status: RUNNING.")
 
@@ -104,6 +102,7 @@ class BraveMCPClient:
 
         # Get all tools from MCP server
         mcp_manifest = await self.session.list_tools()
+        
         vllm_tools = []
 
         for tool in mcp_manifest.tools:
@@ -115,13 +114,12 @@ class BraveMCPClient:
                     "parameters": tool.inputSchema
                 }
             })
-
+        
         # downselect tool list and properties to limit context window consumption
         if self.tool_config:
             config_tools = list(self.tool_config.keys())
             # Downselect tools
             toolbox = [v for v in vllm_tools if v.get('function',{}).get('name',{}) in config_tools]
-            
             # Downselect search properties
             for tool in toolbox:
                 name = tool['function']['name']
@@ -132,7 +130,7 @@ class BraveMCPClient:
                     if field not in self.tool_config.get(name).keys():
                         drop_properties.append(field)
                 [tool['function']['parameters']['properties'].pop(field) for field in drop_properties]
-            
+
             self.toolbox = toolbox
             
         return toolbox

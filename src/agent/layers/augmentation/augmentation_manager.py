@@ -7,7 +7,6 @@ if parent_dir not in sys.path:
 from bravesearch_mcp_client import BraveMCPClient
 from schemas.bravesearch_schemas import TOOL_SCHEMAS
 from firecrawl_mcp_client import Firecrawl_MCP_Client
-from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 import anyio
 import json
 import os
@@ -15,7 +14,6 @@ from ruamel.yaml import YAML
 
 class AugmentationManager():
     def __init__(self, *, tool_config):
-        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
         self.brave_client = BraveMCPClient(tool_config=tool_config.get('brave_config', None))
         self.firecrawl_client = Firecrawl_MCP_Client(tool_config=tool_config.get('firecrawl_config', None))
         print(f"Server alive before initialization? {self.brave_client.is_running}")
@@ -24,18 +22,17 @@ class AugmentationManager():
     async def tool_connect(self):
         await self.brave_client.connect()
         print(f"Server alive after initialization? {self.brave_client.is_running}") # True
-
-        self.brave_toolbox = await self.brave_client.get_vllm_tools_schema()
-        print(f"Successfully converted {len(self.brave_toolbox)} tools for llm.chat().")
+        self.toolbox = await self.brave_client.get_vllm_tools_schema()
+        print(f"Successfully converted {len(self.toolbox)} tools for llm.chat().")
             
     async def tool_disconnect(self):
         await self.brave_client.disconnect()
         print(f"Server status post-teardown: {self.brave_client.is_running}") # False
 
     def show_tools(self):
-        return self.brave_toolbox
+        return self.toolbox
 
-    def parse_llm_response(self, llm_response: str):
+    def validate_llm_response(self, llm_response: str):
         # takes llm response, checks it for a tool call, and if present, runs the tool and presents the MCP response
         response_data = json.loads(llm_response.read())
 

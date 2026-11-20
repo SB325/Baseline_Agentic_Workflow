@@ -16,13 +16,11 @@ if parent_dir not in sys.path:
 from orchestration.llm_orchestrator import LLM
 from memory.memory_manager import MemoryManager
 from augmentation.augmentation_manager import AugmentationManager
-from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
-from load_folder_yamls import load_folder_yamls, prune_to_matching_key
+from agent.load_folder_yamls import load_folder_yamls, prune_to_matching_key
 
 class EvaluationManager():
     def __init__(self, *, eval_config):
         self.config = eval_config
-        self.observation = {'traces': otel_tracer(), 'metrics': otel_metrics(), 'logs': otel_logger()}
     
     def format_eval(self, fmt: str):
         if 'json' == fmt:
@@ -34,8 +32,8 @@ class EvaluationManager():
         else:
             pass
 
-    def classifier_eval(self, question: str, options: list):
-        options = options if 'other' in options else options.append('other')
+    async def evaluate(self, question: str, options: list, operand_string: str):
+        # options = options if 'other' in options else options.append('other')
         # Try with laya running as a locally hosted service
         pass
 

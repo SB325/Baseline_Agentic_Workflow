@@ -18,7 +18,6 @@ import json
 import copy
 import codecs
 from schemas.firecrawl_schemas import TOOL_SCHEMAS
-from layers.observation.otel import otel_tracer, otel_metrics, otel_logger
 
 load_dotenv()
 firecrawl_service_name = os.getenv("FIRECRAWL_SERVICE_NAME")
@@ -123,7 +122,7 @@ class Firecrawl_MCP_Client():
 
         return self.toolbox
 
-    def parse_llm_response(self, llm_response: str):
+    def validate_llm_response(self, llm_response: str):
         # takes llm response, checks it for a tool call, and if present, runs the tool and presents the MCP response.
         # Intended to be wrapped and called by bravemcp_client rather than called by llm
         #   In this case, if a url is known, call query directly.

@@ -167,11 +167,11 @@ async def new_session(session_data, request):
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
                 )
-        else:
-            raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
-                )
+        # else:
+        #     raise HTTPException(
+        #             status_code=status.HTTP_409_CONFLICT,
+        #             detail=f"Cannot create client with ID {client_id} because the max number of clients ({MAX_CLIENTS}) is currently in use."
+        #         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -316,6 +316,12 @@ async def gpu_status():
         )
 
 if __name__ == "__main__":
-    uvicorn.run("llm_client_sessions:api", host="0.0.0.0", port=vllm_port, log_level="debug") #, reload=True)
+    uvicorn.run("llm_client_sessions:api", 
+        host="0.0.0.0", 
+        port=vllm_port, 
+        timeout_keep_alive=120,  # Keeps idle SSE connections alive longer
+        limit_concurrency=100,
+        log_level="debug"
+        ) #, reload=True)
 
     

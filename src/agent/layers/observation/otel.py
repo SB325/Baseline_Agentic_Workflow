@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from enum import Enum
 from uuid import uuid4
 import functools
+import asyncio
 # import inspect
 
 load_dotenv(override=True) 
@@ -102,14 +103,14 @@ class otel_metrics():
         # pdb.set_trace()
     
     def callback_passthrough(self, options: CallbackOptions, funct):
-        val_out = funct()
+        val_out = asyncio.run(funct())
         yield Observation(val_out)  
 
     def create_meter(self, 
             meter_name : str, 
-            callback_function_int: None, # function returning int or float
             meter_type: meterType,
             description: str,
+            callback_function_int = None, # function returning int or float
         ):
         self.meter_objects = {
             'counters': [], 
@@ -156,15 +157,15 @@ class otel_metrics():
                     )
                 )
                 
-                if meter_type == meterType.gauge.value:
-                    self.meter_objects['observableGauges'].append(
-                        meter.create_observable_gauge(
-                            name=meter_name,  # ex: "http.server.requests.total",
-                            callbacks=callback,
-                            unit="1",
-                            description=description,
-                        )
+            if meter_type == meterType.gauge.value:
+                self.meter_objects['observableGauges'].append(
+                    meter.create_observable_gauge(
+                        name=meter_name,  # ex: "http.server.requests.total",
+                        callbacks=callback,
+                        unit="1",
+                        description=description,
                     )
+                )
 
             if meter_type == meterType.histogram.value:
                 self.meter_objects['histograms'].append(
@@ -192,27 +193,27 @@ class otel_metrics():
 
     def update_up_down_counter(self, counter_name, change_by: int = 1, attributes: dict = None):
         try:
-            upDownCounter = [val for val in self.meter_objects['upDownCounters']
-                if counter_name in val.name]
+            upDownCounter = {val.name:val for val in self.meter_objects['upDownCounters']
+                if counter_name in val.name}
 
             if not upDownCounter:
                 print(f"UpDownCounter name {counter_name} not found.")
-            # pdb.set_trace()
-            upDownCounter[0].add(change_by, attributes)
+            
+            upDownCounter[counter_name].add(change_by, attributes)
         except Exception as e:
             logs = otel_logger()
             logs.error(e)
 
-    def update_gauge(self):
-        try:
-            gauge = [val for val in self.meter_objects['observableGauges']
-                    if counter_name in val.name]
+    # def update_gauge(self):
+    #     try:
+    #         gauge = [val for val in self.meter_objects['observableGauges']
+    #                 if counter_name in val.name]
         
-            if not gauge:
-                print(f"Gauge name {counter_name} not found.")
-        except Exception as e:
-            logs = otel_logger()
-            logs.error(e)
+    #         if not gauge:
+    #             print(f"Gauge name {counter_name} not found.")
+    #     except Exception as e:
+    #         logs = otel_logger()
+    #         logs.error(e)
 
     def update_histogram(self, counter_name, ammount: int, attributes: dict=None, context=None):
         try:
@@ -298,3 +299,21 @@ if __name__ == "__main__":
             logs.info(f'My Second Span')
     
     print('done')
+
+
+class OTelObservation:
+    """Combined observation wrapper implementing IObservation protocol."""
+
+    def __init__(self, service_name: str = 'default'):
+        self.tracer = otel_tracer(service_name=service_name)
+        self.metrics = otel_metrics(meter_prefix=service_name)
+        self.logger = otel_logger(instance_id=service_name)
+
+    def trace(self, name: str):
+        return self.tracer.set_span(name)
+
+    def metric(self, name: str):
+        return self.metrics
+
+    def log(self, level: str, msg: str):
+        getattr(self.logger, level, self.logger.info)(msg)
