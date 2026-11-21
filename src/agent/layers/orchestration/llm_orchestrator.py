@@ -223,7 +223,8 @@ class LLM:
                 print(f"Inference POST request failed: {val.status_code}: {val.reason}")
                 return {'status': status_code, 'output': results['detail']}
             
-            print(f"Output: {results['data']['result']['output']} or 'Empty'")
+            print(f"Output: ")
+            print({results['data']['result']['output']} or "Empty")
             return {'status': results['status'], 'output': results['data']['result']['output']}
         except Exception as e:
             print(f"Inference failed:\n{e}")
